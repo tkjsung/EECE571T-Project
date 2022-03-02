@@ -11,8 +11,8 @@ Original file is located at
 Author: Tom Sung
 
 Last updated:
-* Date: February 28, 2022
-* Time: 4:20pm
+* Date: March 1, 2022
+* Time: 6:13pm
 
 ## References
 (There are more references throughout the document, I just haven't consolidated them all here yet)
@@ -21,8 +21,9 @@ Last updated:
 * https://medium.com/@adriensieg/text-similarities-da019229c894
 * Text Classification tutorial: https://github.com/adsieg/Multi_Text_Classification
 * From same author:
-  * [**Feb.17**] This is used for the Word Embedding part: https://towardsdatascience.com/text-classification-with-nlp-tf-idf-vs-word2vec-vs-bert-41ff868d1794 (Try following these instructions next)
-  * [**Feb.17**] https://towardsdatascience.com/text-analysis-feature-engineering-with-nlp-502d6ea9225d
+    * [**Feb.17**] This is used for the Word Embedding part: https://towardsdatascience.com/text-classification-with-nlp-tf-idf-vs-word2vec-vs-bert-41ff868d1794 (Try following these instructions next)
+    * [**Feb.17**] https://towardsdatascience.com/text-analysis-feature-engineering-with-nlp-502d6ea9225d
+* Different Pre-Processing Techniques with Bag of Words w/ TF-IDF, Word Embedding, and BERT: https://towardsdatascience.com/text-classification-with-nlp-tf-idf-vs-word2vec-vs-bert-41ff868d1794
 
 ## Get data from GitHub repo
 
@@ -220,7 +221,7 @@ print(api.load("glove-twitter-25", return_path=True))
 # Check dimension of word vectors
 # model.vector_size
 
-"""### Pre-Processing
+"""#### Pre-Processing
 Using Keras for Preprocessing. Steps taken:
 1. Called the Tokenizer object
 2. Added Training Set Vocabulary to the Tokenizer object (`fit_on_texts`)
@@ -260,7 +261,7 @@ for key, value in dict_data.items():
 
 # Longest sentence has 35 elements. Average is around 10.
 # TODO: This value, which influences padding, should be adjusted I think...
-maxlen = 35
+maxlen = 15
 
 """Pad each sample to the same length."""
 
@@ -313,6 +314,7 @@ def attention_layer(inputs, neurons):
 x_in = layers.Input(shape=(maxlen,))
 
 # embedding
+# trainable=False means that these embedding weights will not change. What if they did though?
 x = layers.Embedding(input_dim=embeddings.shape[0],
                      output_dim=embeddings.shape[1],
                      weights=[embeddings],
@@ -336,10 +338,11 @@ model.summary()
 # The fitting method should be placed in a variable so that results can be easily extracted later...
 # For now, I would like to see training happening in real time, so making it verbose I guess.
 # Still need to adjust hyper-parameters for better results... if I can get better results.
-model.fit(x=X_train, y=data_train['emotion_enc'], batch_size=256, epochs=10,
-                     shuffle=True, verbose=1, validation_data=[X_val, data_val['emotion_enc']]) #validation_split=0.3)
+# batch_size=256 (default given on the website)
+model.fit(x=X_train, y=data_train['emotion_enc'], batch_size=32, epochs=100,
+                     shuffle=True, verbose=1, validation_data=[X_val, data_val['emotion_enc']])
 
-"""#### [IGNORE] Using GloVe (Pre-trained Word Embeddings)"""
+"""#### [IGNORE] ~Using GloVe (Pre-trained Word Embeddings)~"""
 
 # IGNORE this code block for now.
 # import numpy as np
