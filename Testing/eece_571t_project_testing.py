@@ -27,7 +27,7 @@ Last updated:
 
 ## Get data from GitHub repo
 
-**Only run this once** to import the Kaggle data set, which I have placed on my public GitHub repo.
+**Only run this once even after if notebook environment is cleared via** `%reset -f`. The code written here imports the Kaggle data set, which I have placed on my public GitHub repo.
 """
 
 !wget https://github.com/tkjsung/EECE571T_Dataset/archive/refs/heads/master.zip
@@ -133,15 +133,15 @@ def preprocess(raw_text):
     stopword_set = set(stopwords.words("english"))
     meaningful_words = [w for w in words if w not in stopword_set]
     
-    #stemmed words (looks like this is causing some words to be weird)
-    ps = PorterStemmer()
-    stemmed_words = [ps.stem(word) for word in meaningful_words]
+    # stemmed words (looks like this is causing some words to be weird)
+    # ps = PorterStemmer()
+    # stemmed_words = [ps.stem(word) for word in meaningful_words]
 
-    #lemmed words (trying this because this gets the root word?)
+    # lemmed words (trying this because this gets the root word?)
     lem = WordNetLemmatizer()
     lemmed_words = [lem.lemmatize(word) for word in meaningful_words]
     
-    #join the cleaned words in a list
+    # join the cleaned words in a list
     # cleaned_word_list = " ".join(stemmed_words)
     cleaned_word_list = " ".join(lemmed_words)
     # cleaned_word_list = " ".join(meaningful_words)
@@ -159,42 +159,7 @@ data_val['sentence_cleaned'] = data_val['sentence'].apply(lambda line : preproce
 Pre-processing and training is bundled together as the different methods use different pre-processing steps.<br>
 There are several methods available: Bag-of-words with TF-IDF, Word Embedding using ~Word2Vec~ [I used GloVe, not Word2Vec] (unknown NN), and BERT.
 
-### [IGNORE] ~METHOD 1: TF-IDF~
-
-I think I misunderstood what this actually is doing... In terms of `texts_to_sequences` function in `keras.preprocessing.text`
-
-Tokenize text and vectorize. (This is literally TF-IDF, as per Tensorflow's documentation)
-"""
-
-# import sklearn
-# from keras.preprocessing import text
-# token = text.Tokenizer() # uses keras.preprocessing I believe
-
-# token.fit_on_texts(data_train['sentence'])
-# word_index = token.word_index
-
-# # Text to sequence
-# x_train_token = token.texts_to_sequences(data_train['sentence'])
-# x_test_token = token.texts_to_sequences(data_test['sentence'])
-# x_val_token = token.texts_to_sequences(data_val['sentence'])
-
-"""Pad the data sets to be of the same length"""
-
-# def checkLength(listArr):
-#   max = 0
-#   for i in range(0,len(listArr)):
-#     if(max < len(listArr[i])):
-#       max = len(listArr[i])
-#   return max
-# print(checkLength(x_train_token))
-# print(checkLength(x_test_token))
-# print(checkLength(x_val_token))
-
-"""Max length is 35. Pad all arrays to be of size 35."""
-
-# Need to add padding code here
-
-"""### METHOD 2: Word Embedding
+### METHOD 1: Word Embedding
 
 I did pre-processing, word stemming, and stuff like that in Data Cleaning. The simplest way avoid words not being found in a database is if word stemming is not performed on the dataset (or as I just found out, use lemmization instead. More computationally complex but better for actually working with word embedding techniques (I think)).
 
@@ -230,6 +195,8 @@ Using Keras for Preprocessing. Steps taken:
 4. Padded the length of every sample so that the input matrix would be equal in size
 """
 
+data_train.head()
+
 from keras.preprocessing.text import Tokenizer
 from keras.preprocessing.sequence import pad_sequences
 import seaborn as sns
@@ -250,18 +217,31 @@ vocab_size = len(tokenizer.word_index) + 1
 dict_data = {'X_train': X_train,
              'X_test': X_test,
              'X_val': X_val}
+histo_plot_data = np.zeros((3,35))
+
+tmp_counter = 0;
 for key, value in dict_data.items():
     feedback = 0;
     feedback_sum = 0;
     for i in value:
+        histo_plot_data[tmp_counter, len(i)-1] += 1
         feedback_sum += len(i)
         if len(i) > feedback:
             feedback = len(i)
     print(f"{key}, Longest ID: {feedback}, Average ID length: {feedback_sum/len(value)}")
+    tmp_counter += 1
+del tmp_counter
 
 # Longest sentence has 35 elements. Average is around 10.
 # TODO: This value, which influences padding, should be adjusted I think...
-maxlen = 15
+maxlen = 20
+
+# Plotting the ID histogram to see the distribution
+import matplotlib.pyplot as plt
+
+plt.barh(range(1,35+1), histo_plot_data[0,:])
+plt.barh(range(1,35+1), histo_plot_data[1,:])
+plt.barh(range(1,35+1), histo_plot_data[2,:])
 
 """Pad each sample to the same length."""
 
@@ -318,7 +298,7 @@ x_in = layers.Input(shape=(maxlen,))
 x = layers.Embedding(input_dim=embeddings.shape[0],
                      output_dim=embeddings.shape[1],
                      weights=[embeddings],
-                     input_length=maxlen, trainable=False)(x_in)
+                     input_length=maxlen, trainable=True)(x_in)
 
 # apply attention
 x = attention_layer(x, neurons=maxlen)
@@ -339,8 +319,13 @@ model.summary()
 # For now, I would like to see training happening in real time, so making it verbose I guess.
 # Still need to adjust hyper-parameters for better results... if I can get better results.
 # batch_size=256 (default given on the website)
-model.fit(x=X_train, y=data_train['emotion_enc'], batch_size=32, epochs=100,
+model.fit(x=X_train, y=data_train['emotion_enc'], batch_size=32, epochs=20,
                      shuffle=True, verbose=1, validation_data=[X_val, data_val['emotion_enc']])
+
+"""Test data on the fitted model using `model.evaluate()`. Also get the probabilities of each sentence via `model.predict()`"""
+
+model.evaluate(X_test, data_test["emotion_enc"], batch_size=1)
+model.predict(X_test)
 
 """#### [IGNORE] ~Using GloVe (Pre-trained Word Embeddings)~"""
 
