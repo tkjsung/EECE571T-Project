@@ -13,10 +13,19 @@ Focus: BERT
 Author: Tom Sung
 
 Last updated:
-* Date: March 9, 2022
-* Time: 9:52pm
+* Date: March 10, 2022
+* Time: 6:33pm
+"""
 
-## References
+# Check detected system hardware resources.
+# import os
+# os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
+import tensorflow as tf
+print("TensorFlow version:", tf.__version__)
+print("Num GPUs Available: ", len(tf.config.experimental.list_physical_devices('GPU')))
+print("Num CPUs Available: ", len(tf.config.experimental.list_physical_devices('CPU')))
+
+"""## References
 
 * Text Classification tutorial: https://github.com/adsieg/Multi_Text_Classification
 * From same author:
@@ -213,19 +222,27 @@ plt.barh(range(1,66+1), histo_plot_data[0,:])
 plt.barh(range(1,66+1), histo_plot_data[1,:])
 plt.barh(range(1,66+1), histo_plot_data[2,:])
 
-"""#### BERT Model"""
+"""#### BERT Model (Using HuggingFace transformers library)"""
 
 !pip install transformers
 import transformers
 
+from transformers import pipeline
+
 # BERT tokenizer
 # tokenizer = transformers.BertTokenizer.from_pretrained('bert-base-uncased', do_lower_case=True)
 tokenizer = transformers.AutoTokenizer.from_pretrained('distilbert-base-uncased', num_labels=6, do_lower_case=True)
+# tokenizer = transformers.AutoTokenizer.from_pretrained("prajjwal1/bert-tiny", num_labels=6, do_lower_case=True)
+# test_nlp_recognizer = pipeline("sentiment-analysis", model="prajjwal1/bert-tiny")
 
 # BERT Model
 config = transformers.DistilBertConfig(dropout=0.2, attention_dropout=0.2)
+# config = transformers.AutoConfig(dropout=0.2, attention_dropout=0.2)
+# config = transformers.AutoConfig.from_pretrained("prajjwal1/bert-tiny", hidden_dropout_prob=0.2)
 config.output_hidden_states = False
+
 nlp = transformers.TFDistilBertModel.from_pretrained('distilbert-base-uncased', config=config)
+# nlp = transformers.AutoModel.from_pretrained("prajjwal1/bert-tiny", config=config)
 
 """From the website (https://towardsdatascience.com/text-classification-with-nlp-tf-idf-vs-word2vec-vs-bert-41ff868d1794): <br>
 *First of all, we need to select the sequence max length. This time I’m gonna choose a much larger number (i.e. 50) because BERT splits unknown words into sub-tokens until it finds a known unigrams. For example, if a made-up word like “zzdata” is given, BERT would split it into [“z”, “##z”, “##data”]. Moreover, we have to insert special tokens into the input text, then generate masks and segments. Finally, put all together in a tensor to get the feature matrix that will have the shape of 3 (ids, masks, segments) x Number of documents in the corpus x Sequence length*
@@ -311,6 +328,7 @@ plt.barh(range(1,87+1), histo_plot_data[2,:])
 from keras.models import Sequential
 from keras import layers, models, optimizers
 import keras
+import tensorflow as tf
 
 # Inputs
 idx = layers.Input((maxlen), dtype='int32',name='input_idx')
@@ -325,7 +343,9 @@ bert_out = nlp([idx, masks])
 
 # fine-tuning
 x = layers.GlobalAveragePooling1D()(bert_out[0])
+# x = layers.Dense(64, activation='relu')(x)
 x = layers.Dense(64, activation='relu')(x)
+# x = layers.Dense(64, activation='sigmoid')(x)
 y_out = layers.Dense(6, activation='softmax')(x)
 
 model = models.Model([idx, masks], y_out)
@@ -334,10 +354,17 @@ model = models.Model([idx, masks], y_out)
 for layer in model.layers[:4]:
     layer.trainable=False
 
-model.compile(loss='sparse_categorical_crossentropy', optimizer='adam', metrics=['accuracy'])
+# model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=3e-5, epsilon=1e-08, clipnorm=1.0), 
+            #   loss=tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True), 
+            #   metrics=[tf.keras.metrics.SparseCategoricalAccuracy('accuracy')])
+
+model.compile(loss='sparse_categorical_crossentropy', 
+              optimizer='adam',
+            #   optimizer=tf.keras.optimizers.Adam(learning_rate=3e-5, epsilon=1e-08, clipnorm=1.0), 
+              metrics=['accuracy'])
 model.summary()
 
-model.fit(x=X_train, y=data_train['emotion_enc'], batch_size=32, epochs=3,
+model.fit(x=X_train, y=data_train['emotion_enc'], batch_size=50, epochs=10,
                      shuffle=True, verbose=1, validation_data=[X_val, data_val['emotion_enc']])
 
 # Testing the tokenizer model...
@@ -569,6 +596,57 @@ model.fit(x=X_train, y=data_train['emotion_enc'], batch_size=32, epochs=3,
 # print(f'Word Ids   : {text_preprocessed["input_word_ids"][0, :12]}')
 # print(f'Input Mask : {text_preprocessed["input_mask"][0, :12]}')
 # print(f'Type Ids   : {text_preprocessed["input_type_ids"][0, :12]}')
+
+"""#### BERT Model (Using Google's Tensorflow Tutorial)
+
+[Link](https://colab.research.google.com/github/tensorflow/text/blob/master/docs/tutorials/classify_text_with_bert.ipynb#scrollTo=_OoF9mebuSZc)
+"""
+
+# A dependency of the preprocessing for BERT inputs
+!pip install -q -U "tensorflow-text==2.8.*"
+!pip install -q tf-models-official==2.7.0
+
+import os
+import shutil?
+
+import tensorflow as tf
+import tensorflow_hub as hub
+import tensorflow_text as text
+from official.nlp import optimization  # to create AdamW optimizer
+
+import matplotlib.pyplot as plt
+
+tf.get_logger().setLevel('ERROR')
+
+# Get BERT Model
+
+# bert_model_name = 'small_bert/bert_en_uncased_L-2_H-128_A-2'
+
+# 
+tfhub_handle_encoder = 'https://tfhub.dev/tensorflow/small_bert/bert_en_uncased_L-2_H-128_A-2/1'
+tfhub_handle_preprocess = 'https://tfhub.dev/tensorflow/bert_en_uncased_preprocess/3'
+
+bert_preprocess_model = hub.KerasLayer(tfhub_handle_preprocess)
+bert_model = hub.KerasLayer(tfhub_handle_encoder)
+
+text_test = ['this is such an amazing movie!']
+text_preprocessed = bert_preprocess_model(text_test)
+# text_preprocessed = bert_preprocess_model(data_train["sentence_cleaned"])
+
+bert_results = bert_model(text_preprocessed)
+
+print(f'Keys       : {list(text_preprocessed.keys())}')
+print(f'Shape      : {text_preprocessed["input_word_ids"].shape}')
+print(f'Word Ids   : {text_preprocessed["input_word_ids"][0, :12]}')
+print(f'Input Mask : {text_preprocessed["input_mask"][0, :12]}')
+print(f'Type Ids   : {text_preprocessed["input_type_ids"][0, :12]}')
+
+
+print(f'Loaded BERT: {tfhub_handle_encoder}')
+print(f'Pooled Outputs Shape:{bert_results["pooled_output"].shape}')
+print(f'Pooled Outputs Values:{bert_results["pooled_output"][0, :12]}')
+print(f'Sequence Outputs Shape:{bert_results["sequence_output"].shape}')
+print(f'Sequence Outputs Values:{bert_results["sequence_output"][0, :12]}')
 
 """### METHOD 1: Word Embedding
 
