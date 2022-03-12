@@ -13,8 +13,8 @@ Focus: BERT
 Author: Tom Sung
 
 Last updated:
-* Date: March 10, 2022
-* Time: 6:33pm
+* Date: March 11, 2022
+* Time: 1:37pm
 """
 
 # Check detected system hardware resources.
@@ -169,58 +169,129 @@ There are several methods available: Bag-of-words with TF-IDF, Word Embedding us
 
 ### METHOD 2: BERT
 
-#### Histogram: Uncleaned Sentences
+#### BERT Model (Using Google's Tensorflow Tutorial)
 
-Let's find out how long the uncleaned sentence is, since the example link does not do data cleaning on the sentences in the sense that common stop words are still provided.
+[Link](https://colab.research.google.com/github/tensorflow/text/blob/master/docs/tutorials/classify_text_with_bert.ipynb#scrollTo=_OoF9mebuSZc)
 """
 
-from keras.preprocessing.text import Tokenizer
-from keras.preprocessing.sequence import pad_sequences
-import seaborn as sns
+# A dependency of the preprocessing for BERT inputs
+!pip install -q -U "tensorflow-text==2.8.*"
+!pip install -q tf-models-official==2.7.0
 
-tokenizer = Tokenizer()
-tokenizer.fit_on_texts(data_train["sentence"])
-dic_vocabulary = tokenizer.word_index
+import os
+import shutil
 
-X_train = tokenizer.texts_to_sequences(data_train["sentence"])
-X_test = tokenizer.texts_to_sequences(data_test["sentence"])
-X_val = tokenizer.texts_to_sequences(data_val["sentence"])
+import tensorflow as tf
+import tensorflow_hub as hub
+import tensorflow_text as text
+from official.nlp import optimization  # to create AdamW optimizer
 
-vocab_size = len(tokenizer.word_index) + 1
-
-# string_name = ['X_train', 'X_test', 'X_val']
-dict_data = {'X_train': X_train,
-             'X_test': X_test,
-             'X_val': X_val}
-histo_plot_data = np.zeros((3,66))
-
-tmp_counter = 0;
-for key, value in dict_data.items():
-    feedback = 0;
-    feedback_sum = 0;
-    for i in value:
-        histo_plot_data[tmp_counter, len(i)-1] += 1
-        feedback_sum += len(i)
-        if len(i) > feedback:
-            feedback = len(i)
-    print(f"{key}, Longest ID: {feedback}, Average ID length: {feedback_sum/len(value)}")
-    tmp_counter += 1
-del tmp_counter
-
-# Longest sentence has 35 elements. Average is around 10.
-# TODO: This value, which influences padding, should be adjusted I think...
-# maxlen = 20
-
-# Delete unneeded variables
-del X_train, X_test, X_val, vocab_size, dic_vocabulary, tokenizer, feedback
-del feedback_sum, dict_data, tmp_counter, i, key, value
-
-# Plotting the ID histogram to see the distribution
 import matplotlib.pyplot as plt
 
-plt.barh(range(1,66+1), histo_plot_data[0,:])
-plt.barh(range(1,66+1), histo_plot_data[1,:])
-plt.barh(range(1,66+1), histo_plot_data[2,:])
+tf.get_logger().setLevel('ERROR')
+
+"""Defining Model"""
+
+# Get BERT Model
+
+# bert_model_name = 'small_bert/bert_en_uncased_L-2_H-128_A-2'
+
+# 
+tfhub_handle_encoder = 'https://tfhub.dev/tensorflow/small_bert/bert_en_uncased_L-2_H-128_A-2/1'
+tfhub_handle_preprocess = 'https://tfhub.dev/tensorflow/bert_en_uncased_preprocess/3'
+
+# These will be used in the NN model. These will be layers in the NN model
+# bert_preprocess_model = hub.KerasLayer(tfhub_handle_preprocess) # This is the pre-processing model
+# bert_model = hub.KerasLayer(tfhub_handle_encoder) # This is the actual BERT model
+
+def build_classifier_model():
+    # Input
+    text_input = tf.keras.layers.Input(shape=(), dtype=tf.string, name='txt')
+
+    # BERT Pre-Processing Layer
+    bert_preprocess_model = hub.KerasLayer(tfhub_handle_preprocess, name='preprocessing') # This is the pre-processing model
+    encoder_inputs = bert_preprocess_model(text_input)
+
+    # BERT Model Layer
+    bert_model = hub.KerasLayer(tfhub_handle_encoder, trainable=True, name='BERT_encoder') # This is the actual BERT model
+    outputs = bert_model(encoder_inputs)
+
+    # Fine-tuning. First, Average pooling
+    net = outputs['pooled_output']
+    net = tf.keras.layers.Dropout(0.1)(net)
+    net = tf.keras.layers.Dense(6, activation='softmax', name='classifier')(net)
+    model = tf.keras.Model(text_input, net)
+    return model
+
+classifier_model = build_classifier_model()
+# bert_raw_result = classifier_model(tf.constant(text_test))
+# print(tf.sigmoid(bert_raw_result))
+
+tf.keras.utils.plot_model(classifier_model)
+
+"""Loss Function"""
+
+loss = tf.keras.losses.SparseCategoricalCrossentropy(from_logits=False)
+metrics = tf.metrics.SparseCategoricalAccuracy()
+
+"""Optimizer"""
+
+# epochs = 5
+# init_lr = 3e-5
+# num_train_steps = 1
+# optimizer = optimization.create_optimizer(init_lr=init_lr,
+#                                           num_train_steps=1,
+#                                           num_warmup_steps=0,
+#                                           optimizer_type='adamw')
+
+"""Build Model"""
+
+classifier_model.compile(optimizer='adam',
+                         loss=loss,
+                         metrics=['accuracy', tf.metrics.SparseCategoricalAccuracy()])
+
+classifier_model.summary()
+
+# model.compile(loss='sparse_categorical_crossentropy', 
+#               optimizer='adam',
+#             #   optimizer=tf.keras.optimizers.Adam(learning_rate=3e-5, epsilon=1e-08, clipnorm=1.0), 
+#               metrics=['accuracy'])
+
+# print(f'Training model with {tfhub_handle_encoder}')
+history = classifier_model.fit(x=data_train["sentence_cleaned"], y=data_train['emotion_enc'],
+                               batch_size=100, epochs=3, verbose=1,
+                               validation_data=[data_val["sentence_cleaned"], data_val['emotion_enc']])
+
+
+
+# history = model.fit(x=X_train, y=data_train['emotion_enc'], batch_size=100, epochs=1,
+#                     shuffle=True, verbose=1, callbacks=get_callbacks(),
+#                     validation_data=[X_val, data_val['emotion_enc']])
+
+"""##### Test
+
+This is test for the imported BERT model. Just for show. It won't be used for the NN itself.
+"""
+
+# text_test = list([['this is such an amazing movie!'],['that was a disaster.']])
+text_test = ['this is such an amazing movie']
+text_preprocessed = bert_preprocess_model(text_test)
+# text_preprocessed = bert_preprocess_model(data_train["sentence_cleaned"])
+
+bert_results = bert_model(text_preprocessed)
+
+print(f'Keys       : {list(text_preprocessed.keys())}')
+print(f'Shape      : {text_preprocessed["input_word_ids"].shape}')
+print(f'Word Ids   : {text_preprocessed["input_word_ids"][0, :12]}')
+print(f'Input Mask : {text_preprocessed["input_mask"][0, :12]}')
+print(f'Type Ids   : {text_preprocessed["input_type_ids"][0, :12]}')
+
+
+print(f'Loaded BERT: {tfhub_handle_encoder}')
+print(f'Pooled Outputs Shape:{bert_results["pooled_output"].shape}')
+print(f'Pooled Outputs Values:{bert_results["pooled_output"][0, :12]}')
+print(f'Sequence Outputs Shape:{bert_results["sequence_output"].shape}')
+print(f'Sequence Outputs Values:{bert_results["sequence_output"][0, :12]}')
 
 """#### BERT Model (Using HuggingFace transformers library)"""
 
@@ -264,7 +335,7 @@ except:
 
 histo_plot_data = np.zeros((3,87))
 # Set max length of the sentence
-maxlen=20
+maxlen=72
 
 # I really should be using data cleaning that I used for Word Embedding, but let's have something working first.
 def bert_tokenize(corpus, dataset_str):
@@ -315,9 +386,9 @@ X_test, histo_plot_data[2,:] = bert_tokenize(data_test["sentence_cleaned"], 'X_t
 
 # Plotting the ID histogram to see the distribution
 import matplotlib.pyplot as plt
-plt.barh(range(1,87+1), histo_plot_data[0,:])
-plt.barh(range(1,87+1), histo_plot_data[1,:])
-plt.barh(range(1,87+1), histo_plot_data[2,:])
+plt.barh(range(1,maxlen+1), histo_plot_data[0,:])
+plt.barh(range(1,maxlen+1), histo_plot_data[1,:])
+plt.barh(range(1,maxlen+1), histo_plot_data[2,:])
 
 # X_train=[np.asarray(idx, dtype='int32'), 
 #          np.asarray(masks, dtype='int32')]#, 
@@ -364,15 +435,34 @@ model.compile(loss='sparse_categorical_crossentropy',
               metrics=['accuracy'])
 model.summary()
 
-model.fit(x=X_train, y=data_train['emotion_enc'], batch_size=50, epochs=10,
-                     shuffle=True, verbose=1, validation_data=[X_val, data_val['emotion_enc']])
+from  IPython import display
+# from matplotlib import pyplot as plt
 
-# Testing the tokenizer model...
+# import numpy as np
 
-# text_test = ["this is an amazing movie", "this is a crappy move on your part"]
-# # text_preprocessed = bert_preprocess_model(text_test)
-# text_preprocessed = tokenizer(text_test)
-# print(text_preprocessed)
+# import pathlib
+# import shutil
+# import tempfile
+
+# logdir = pathlib.Path(tempfile.mkdtemp())/"tensorboard_logs"
+# shutil.rmtree(logdir, ignore_errors=True)
+
+# !pip install git+https://github.com/tensorflow/docs
+# import tensorflow_docs as tfdocs
+# import tensorflow_docs.modeling
+# import tensorflow_docs.plots
+
+# def get_callbacks(name):
+def get_callbacks():
+  return [
+    # tfdocs.modeling.EpochDots(),
+    tf.keras.callbacks.EarlyStopping(monitor='loss', patience=4),
+    # tf.keras.callbacks.TensorBoard(logdir/name),
+  ]
+
+history = model.fit(x=X_train, y=data_train['emotion_enc'], batch_size=100, epochs=1,
+                    shuffle=True, verbose=1, callbacks=get_callbacks(),
+                    validation_data=[X_val, data_val['emotion_enc']])
 
 """#### Doing some other testing here"""
 
@@ -597,56 +687,65 @@ model.fit(x=X_train, y=data_train['emotion_enc'], batch_size=50, epochs=10,
 # print(f'Input Mask : {text_preprocessed["input_mask"][0, :12]}')
 # print(f'Type Ids   : {text_preprocessed["input_type_ids"][0, :12]}')
 
-"""#### BERT Model (Using Google's Tensorflow Tutorial)
+# Testing the tokenizer model...
 
-[Link](https://colab.research.google.com/github/tensorflow/text/blob/master/docs/tutorials/classify_text_with_bert.ipynb#scrollTo=_OoF9mebuSZc)
+# text_test = ["this is an amazing movie", "this is a crappy move on your part"]
+# # text_preprocessed = bert_preprocess_model(text_test)
+# text_preprocessed = tokenizer(text_test)
+# print(text_preprocessed)
+
+"""#### Histogram: Uncleaned Sentences
+
+Let's find out how long the uncleaned sentence is, since the example link does not do data cleaning on the sentences in the sense that common stop words are still provided.
 """
 
-# A dependency of the preprocessing for BERT inputs
-!pip install -q -U "tensorflow-text==2.8.*"
-!pip install -q tf-models-official==2.7.0
+from keras.preprocessing.text import Tokenizer
+from keras.preprocessing.sequence import pad_sequences
+import seaborn as sns
 
-import os
-import shutil?
+tokenizer = Tokenizer()
+tokenizer.fit_on_texts(data_train["sentence"])
+dic_vocabulary = tokenizer.word_index
 
-import tensorflow as tf
-import tensorflow_hub as hub
-import tensorflow_text as text
-from official.nlp import optimization  # to create AdamW optimizer
+X_train = tokenizer.texts_to_sequences(data_train["sentence"])
+X_test = tokenizer.texts_to_sequences(data_test["sentence"])
+X_val = tokenizer.texts_to_sequences(data_val["sentence"])
 
+vocab_size = len(tokenizer.word_index) + 1
+
+# string_name = ['X_train', 'X_test', 'X_val']
+dict_data = {'X_train': X_train,
+             'X_test': X_test,
+             'X_val': X_val}
+histo_plot_data = np.zeros((3,66))
+
+tmp_counter = 0;
+for key, value in dict_data.items():
+    feedback = 0;
+    feedback_sum = 0;
+    for i in value:
+        histo_plot_data[tmp_counter, len(i)-1] += 1
+        feedback_sum += len(i)
+        if len(i) > feedback:
+            feedback = len(i)
+    print(f"{key}, Longest ID: {feedback}, Average ID length: {feedback_sum/len(value)}")
+    tmp_counter += 1
+del tmp_counter
+
+# Longest sentence has 35 elements. Average is around 10.
+# TODO: This value, which influences padding, should be adjusted I think...
+# maxlen = 20
+
+# Delete unneeded variables
+del X_train, X_test, X_val, vocab_size, dic_vocabulary, tokenizer, feedback
+del feedback_sum, dict_data, tmp_counter, i, key, value
+
+# Plotting the ID histogram to see the distribution
 import matplotlib.pyplot as plt
 
-tf.get_logger().setLevel('ERROR')
-
-# Get BERT Model
-
-# bert_model_name = 'small_bert/bert_en_uncased_L-2_H-128_A-2'
-
-# 
-tfhub_handle_encoder = 'https://tfhub.dev/tensorflow/small_bert/bert_en_uncased_L-2_H-128_A-2/1'
-tfhub_handle_preprocess = 'https://tfhub.dev/tensorflow/bert_en_uncased_preprocess/3'
-
-bert_preprocess_model = hub.KerasLayer(tfhub_handle_preprocess)
-bert_model = hub.KerasLayer(tfhub_handle_encoder)
-
-text_test = ['this is such an amazing movie!']
-text_preprocessed = bert_preprocess_model(text_test)
-# text_preprocessed = bert_preprocess_model(data_train["sentence_cleaned"])
-
-bert_results = bert_model(text_preprocessed)
-
-print(f'Keys       : {list(text_preprocessed.keys())}')
-print(f'Shape      : {text_preprocessed["input_word_ids"].shape}')
-print(f'Word Ids   : {text_preprocessed["input_word_ids"][0, :12]}')
-print(f'Input Mask : {text_preprocessed["input_mask"][0, :12]}')
-print(f'Type Ids   : {text_preprocessed["input_type_ids"][0, :12]}')
-
-
-print(f'Loaded BERT: {tfhub_handle_encoder}')
-print(f'Pooled Outputs Shape:{bert_results["pooled_output"].shape}')
-print(f'Pooled Outputs Values:{bert_results["pooled_output"][0, :12]}')
-print(f'Sequence Outputs Shape:{bert_results["sequence_output"].shape}')
-print(f'Sequence Outputs Values:{bert_results["sequence_output"][0, :12]}')
+plt.barh(range(1,66+1), histo_plot_data[0,:])
+plt.barh(range(1,66+1), histo_plot_data[1,:])
+plt.barh(range(1,66+1), histo_plot_data[2,:])
 
 """### METHOD 1: Word Embedding
 
