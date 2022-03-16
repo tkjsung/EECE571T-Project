@@ -13,8 +13,8 @@ Focus: BERT
 Author: Tom Sung
 
 Last updated:
-* Date: March 11, 2022
-* Time: 1:37pm
+* Date: March 15, 2022
+* Time: 5:51pm
 """
 
 # Check detected system hardware resources.
@@ -33,7 +33,7 @@ print("Num CPUs Available: ", len(tf.config.experimental.list_physical_devices('
     * [**Feb.17**] https://towardsdatascience.com/text-analysis-feature-engineering-with-nlp-502d6ea9225d
 * Different Pre-Processing Techniques with Bag of Words w/ TF-IDF, Word Embedding, and BERT: https://towardsdatascience.com/text-classification-with-nlp-tf-idf-vs-word2vec-vs-bert-41ff868d1794
 
-## Get data from GitHub repo
+# Get data from GitHub repo
 
 **Only run this once even after if notebook environment is cleared via** `%reset -f`. The code written here imports the Kaggle data set, which I have placed on my public GitHub repo.
 """
@@ -43,7 +43,7 @@ print("Num CPUs Available: ", len(tf.config.experimental.list_physical_devices('
 # For local computer use:
 # !unzip master.zip
 
-"""## Import Data"""
+"""# Import Data"""
 
 # Commented out IPython magic to ensure Python compatibility.
 # Import libraries for data import
@@ -73,7 +73,7 @@ data_train.head()
 # data_test.head()
 # data_val.head()
 
-"""## Encode the emotion labels with unique identifiers"""
+"""# Encode the emotion labels with unique identifiers"""
 
 from sklearn.preprocessing import LabelEncoder
 # Encode the emotion labels with unique identifiers
@@ -84,28 +84,19 @@ data_test['emotion_enc'] = labelencoder.fit_transform(data_test['emotion'])
 data_val['emotion_enc'] = labelencoder.fit_transform(data_val['emotion'])
 # For data_test and data_val, use the same labelencoder. Make sure it's the same by using the display code below.
 
-"""Display the encoded emotion labels"""
+"""Sort the encoded emotion labels for some classification reports later"""
 
-data_train[['emotion','emotion_enc']].drop_duplicates(keep='first')
+emotion_label_list = data_train[['emotion','emotion_enc']].drop_duplicates(keep='first')
 # data_test[['emotion','emotion_enc']].drop_duplicates(keep='first')
 # data_val[['emotion','emotion_enc']].drop_duplicates(keep='first')
-
-"""[OLD-Don't need this] ~Add sentence length to each sentence. It should calculate number of characters, including spaces and punctuation.~"""
-
-# data_train['length'] = [len(x) for x in data_train['sentence']]
-# data_test['length'] = [len(x) for x in data_test['sentence']]
-# data_val['length'] = [len(x) for x in data_val['sentence']]
+emotion_label_list = emotion_label_list.sort_values(by='emotion_enc')
+emotion_label_list.iloc[0]
 
 data_train.head()
 data_test.head()
 data_val.head()
 
-"""[OLD-Unncessary] ~Finding the maximum sentence length. It seems to be 300. From the testing and validation set, they are 296 and 295, respectively.~"""
-
-# max_len = data_train['length'].max()
-# print(max_len)
-
-"""## Data Cleaning
+"""# Data Cleaning
 
 We need to do some data cleaning first~, otherwise it would be a nightmare to do pre-processing with at least 15212 vocabulary words...~
 
@@ -162,14 +153,14 @@ data_train['sentence_cleaned'] = data_train['sentence'].apply(lambda line : prep
 data_test['sentence_cleaned'] = data_test['sentence'].apply(lambda line : preprocess(line))
 data_val['sentence_cleaned'] = data_val['sentence'].apply(lambda line : preprocess(line))
 
-"""## Pre-Processing and Training
+"""# Pre-Processing and Training
 
 Pre-processing and training is bundled together as the different methods use different pre-processing steps.<br>
 There are several methods available: Bag-of-words with TF-IDF, Word Embedding using ~Word2Vec~ [I used GloVe, not Word2Vec] (unknown NN), and BERT.
 
-### METHOD 2: BERT
+## METHOD 2: BERT
 
-#### BERT Model (Using Google's Tensorflow Tutorial)
+### BERT Model (Using Google's Tensorflow Tutorial)
 
 [Link](https://colab.research.google.com/github/tensorflow/text/blob/master/docs/tutorials/classify_text_with_bert.ipynb#scrollTo=_OoF9mebuSZc)
 """
@@ -234,7 +225,10 @@ tf.keras.utils.plot_model(classifier_model)
 loss = tf.keras.losses.SparseCategoricalCrossentropy(from_logits=False)
 metrics = tf.metrics.SparseCategoricalAccuracy()
 
-"""Optimizer"""
+"""Optimizer
+
+**Original BERT used AdamW as the optimizer. Please replace ASAP to use the right loss function.**
+"""
 
 # epochs = 5
 # init_lr = 3e-5
@@ -244,11 +238,28 @@ metrics = tf.metrics.SparseCategoricalAccuracy()
 #                                           num_warmup_steps=0,
 #                                           optimizer_type='adamw')
 
+"""Record Logs in Tensorboard"""
+
+from  IPython import display
+import pathlib
+import shutil
+import tempfile
+
+logdir = pathlib.Path(tempfile.mkdtemp())/"tensorboard_logs"
+shutil.rmtree(logdir, ignore_errors=True)
+
+def get_callbacks(name):
+  return [
+    # tfdocs.modeling.EpochDots(),
+    tf.keras.callbacks.EarlyStopping(monitor='val_loss', patience=200),
+    tf.keras.callbacks.TensorBoard(logdir/name),
+  ]
+
 """Build Model"""
 
 classifier_model.compile(optimizer='adam',
                          loss=loss,
-                         metrics=['accuracy', tf.metrics.SparseCategoricalAccuracy()])
+                         metrics=['accuracy'])
 
 classifier_model.summary()
 
@@ -259,44 +270,73 @@ classifier_model.summary()
 
 # print(f'Training model with {tfhub_handle_encoder}')
 history = classifier_model.fit(x=data_train["sentence_cleaned"], y=data_train['emotion_enc'],
-                               batch_size=100, epochs=3, verbose=1,
+                               batch_size=100, epochs=4, verbose=1, callbacks=get_callbacks('BERT'),
                                validation_data=[data_val["sentence_cleaned"], data_val['emotion_enc']])
 
+y_test_predict = classifier_model.predict(data_test["sentence_cleaned"])
+y_test_predict_encoded = [np.argmax(item) for item in y_test_predict]
+y_test_actual = [item for item in data_test["emotion_enc"]]
 
+# from sklearn.metrics import plot_confusion_matrix
+# from sklearn.metrics import confusion_matrix, classification_report
+import sklearn
 
-# history = model.fit(x=X_train, y=data_train['emotion_enc'], batch_size=100, epochs=1,
-#                     shuffle=True, verbose=1, callbacks=get_callbacks(),
-#                     validation_data=[X_val, data_val['emotion_enc']])
+accuracy = sklearn.metrics.accuracy_score(y_test_actual, y_test_predict_encoded)
+# auc = sklearn.metrics.roc_auc_score(y_test_actual, y_test_prob, 
+#                             multi_class="ovr")
+print("Accuracy:",  round(accuracy,3))
+# print("Auc:", round(auc,2))
+print("Detail:")
+print(sklearn.metrics.classification_report(y_test_actual, y_test_predict_encoded,
+      target_names=emotion_label_list["emotion"]))
 
-"""##### Test
+import seaborn as sns
+cm = sklearn.metrics.confusion_matrix(y_test_actual, y_test_predict_encoded)
+fig, ax = plt.subplots()
+sns.heatmap(cm, annot=True, fmt='d', ax=ax, cmap=plt.cm.Blues, 
+            cbar=False)
+ax.set(xlabel="Pred", ylabel="True", xticklabels=emotion_label_list["emotion"], 
+       yticklabels=emotion_label_list["emotion"], title="Confusion matrix")
+plt.yticks(rotation=0)
+
+# Commented out IPython magic to ensure Python compatibility.
+#docs_infra: no_execute
+
+# Load the TensorBoard notebook extension
+# %load_ext tensorboard
+
+# Open an embedded TensorBoard viewer
+# %tensorboard --logdir {logdir}
+
+"""#### ~Test~
 
 This is test for the imported BERT model. Just for show. It won't be used for the NN itself.
 """
 
-# text_test = list([['this is such an amazing movie!'],['that was a disaster.']])
-text_test = ['this is such an amazing movie']
-text_preprocessed = bert_preprocess_model(text_test)
-# text_preprocessed = bert_preprocess_model(data_train["sentence_cleaned"])
+# # text_test = list([['this is such an amazing movie!'],['that was a disaster.']])
+# text_test = ['this is such an amazing movie']
+# text_preprocessed = bert_preprocess_model(text_test)
+# # text_preprocessed = bert_preprocess_model(data_train["sentence_cleaned"])
 
-bert_results = bert_model(text_preprocessed)
+# bert_results = bert_model(text_preprocessed)
 
-print(f'Keys       : {list(text_preprocessed.keys())}')
-print(f'Shape      : {text_preprocessed["input_word_ids"].shape}')
-print(f'Word Ids   : {text_preprocessed["input_word_ids"][0, :12]}')
-print(f'Input Mask : {text_preprocessed["input_mask"][0, :12]}')
-print(f'Type Ids   : {text_preprocessed["input_type_ids"][0, :12]}')
+# print(f'Keys       : {list(text_preprocessed.keys())}')
+# print(f'Shape      : {text_preprocessed["input_word_ids"].shape}')
+# print(f'Word Ids   : {text_preprocessed["input_word_ids"][0, :12]}')
+# print(f'Input Mask : {text_preprocessed["input_mask"][0, :12]}')
+# print(f'Type Ids   : {text_preprocessed["input_type_ids"][0, :12]}')
 
 
-print(f'Loaded BERT: {tfhub_handle_encoder}')
-print(f'Pooled Outputs Shape:{bert_results["pooled_output"].shape}')
-print(f'Pooled Outputs Values:{bert_results["pooled_output"][0, :12]}')
-print(f'Sequence Outputs Shape:{bert_results["sequence_output"].shape}')
-print(f'Sequence Outputs Values:{bert_results["sequence_output"][0, :12]}')
+# print(f'Loaded BERT: {tfhub_handle_encoder}')
+# print(f'Pooled Outputs Shape:{bert_results["pooled_output"].shape}')
+# print(f'Pooled Outputs Values:{bert_results["pooled_output"][0, :12]}')
+# print(f'Sequence Outputs Shape:{bert_results["sequence_output"].shape}')
+# print(f'Sequence Outputs Values:{bert_results["sequence_output"][0, :12]}')
 
-"""#### BERT Model (Using HuggingFace transformers library)"""
+"""### BERT Model (Using HuggingFace transformers library)"""
 
-!pip install transformers
-import transformers
+# !pip install transformers
+# import transformers
 
 from transformers import pipeline
 
@@ -464,7 +504,7 @@ history = model.fit(x=X_train, y=data_train['emotion_enc'], batch_size=100, epoc
                     shuffle=True, verbose=1, callbacks=get_callbacks(),
                     validation_data=[X_val, data_val['emotion_enc']])
 
-"""#### Doing some other testing here"""
+"""### Doing some other testing here"""
 
 # Get feature matrix
 # import re
@@ -694,60 +734,60 @@ history = model.fit(x=X_train, y=data_train['emotion_enc'], batch_size=100, epoc
 # text_preprocessed = tokenizer(text_test)
 # print(text_preprocessed)
 
-"""#### Histogram: Uncleaned Sentences
+"""### Histogram: Uncleaned Sentences
 
 Let's find out how long the uncleaned sentence is, since the example link does not do data cleaning on the sentences in the sense that common stop words are still provided.
 """
 
-from keras.preprocessing.text import Tokenizer
-from keras.preprocessing.sequence import pad_sequences
-import seaborn as sns
+# from keras.preprocessing.text import Tokenizer
+# from keras.preprocessing.sequence import pad_sequences
+# import seaborn as sns
 
-tokenizer = Tokenizer()
-tokenizer.fit_on_texts(data_train["sentence"])
-dic_vocabulary = tokenizer.word_index
+# tokenizer = Tokenizer()
+# tokenizer.fit_on_texts(data_train["sentence"])
+# dic_vocabulary = tokenizer.word_index
 
-X_train = tokenizer.texts_to_sequences(data_train["sentence"])
-X_test = tokenizer.texts_to_sequences(data_test["sentence"])
-X_val = tokenizer.texts_to_sequences(data_val["sentence"])
+# X_train = tokenizer.texts_to_sequences(data_train["sentence"])
+# X_test = tokenizer.texts_to_sequences(data_test["sentence"])
+# X_val = tokenizer.texts_to_sequences(data_val["sentence"])
 
-vocab_size = len(tokenizer.word_index) + 1
+# vocab_size = len(tokenizer.word_index) + 1
 
-# string_name = ['X_train', 'X_test', 'X_val']
-dict_data = {'X_train': X_train,
-             'X_test': X_test,
-             'X_val': X_val}
-histo_plot_data = np.zeros((3,66))
+# # string_name = ['X_train', 'X_test', 'X_val']
+# dict_data = {'X_train': X_train,
+#              'X_test': X_test,
+#              'X_val': X_val}
+# histo_plot_data = np.zeros((3,66))
 
-tmp_counter = 0;
-for key, value in dict_data.items():
-    feedback = 0;
-    feedback_sum = 0;
-    for i in value:
-        histo_plot_data[tmp_counter, len(i)-1] += 1
-        feedback_sum += len(i)
-        if len(i) > feedback:
-            feedback = len(i)
-    print(f"{key}, Longest ID: {feedback}, Average ID length: {feedback_sum/len(value)}")
-    tmp_counter += 1
-del tmp_counter
+# tmp_counter = 0;
+# for key, value in dict_data.items():
+#     feedback = 0;
+#     feedback_sum = 0;
+#     for i in value:
+#         histo_plot_data[tmp_counter, len(i)-1] += 1
+#         feedback_sum += len(i)
+#         if len(i) > feedback:
+#             feedback = len(i)
+#     print(f"{key}, Longest ID: {feedback}, Average ID length: {feedback_sum/len(value)}")
+#     tmp_counter += 1
+# del tmp_counter
 
-# Longest sentence has 35 elements. Average is around 10.
-# TODO: This value, which influences padding, should be adjusted I think...
-# maxlen = 20
+# # Longest sentence has 35 elements. Average is around 10.
+# # TODO: This value, which influences padding, should be adjusted I think...
+# # maxlen = 20
 
-# Delete unneeded variables
-del X_train, X_test, X_val, vocab_size, dic_vocabulary, tokenizer, feedback
-del feedback_sum, dict_data, tmp_counter, i, key, value
+# # Delete unneeded variables
+# del X_train, X_test, X_val, vocab_size, dic_vocabulary, tokenizer, feedback
+# del feedback_sum, dict_data, tmp_counter, i, key, value
 
-# Plotting the ID histogram to see the distribution
-import matplotlib.pyplot as plt
+# # Plotting the ID histogram to see the distribution
+# import matplotlib.pyplot as plt
 
-plt.barh(range(1,66+1), histo_plot_data[0,:])
-plt.barh(range(1,66+1), histo_plot_data[1,:])
-plt.barh(range(1,66+1), histo_plot_data[2,:])
+# plt.barh(range(1,66+1), histo_plot_data[0,:])
+# plt.barh(range(1,66+1), histo_plot_data[1,:])
+# plt.barh(range(1,66+1), histo_plot_data[2,:])
 
-"""### METHOD 1: Word Embedding
+"""## METHOD 1: Word Embedding
 
 I did pre-processing, word stemming, and stuff like that in Data Cleaning. The simplest way avoid words not being found in a database is if word stemming is not performed on the dataset (or as I just found out, use lemmization instead. More computationally complex but better for actually working with word embedding techniques (I think)).
 
@@ -774,7 +814,7 @@ print(api.load("glove-twitter-25", return_path=True))
 # Check dimension of word vectors
 # model.vector_size
 
-"""#### Pre-Processing
+"""### Pre-Processing
 Using Keras for Preprocessing. Steps taken:
 1. Called the Tokenizer object
 2. Added Training Set Vocabulary to the Tokenizer object (`fit_on_texts`)
@@ -862,7 +902,7 @@ print(f"Number of words in dictionary that have been assigned a matrix of 0's: {
 # print("embeddings[idx]:", embeddings[dic_vocabulary[word]].shape, 
 #       "|vector")
 
-"""#### Neural Network
+"""### Neural Network
 
 Referencing source: https://towardsdatascience.com/text-classification-with-nlp-tf-idf-vs-word2vec-vs-bert-41ff868d1794
 """
