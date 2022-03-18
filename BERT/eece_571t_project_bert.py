@@ -13,8 +13,12 @@ Focus: BERT
 Author: Tom Sung
 
 Last updated:
-* Date: March 15, 2022
-* Time: 5:51pm
+* Date: March 17, 2022
+* Time: 6:31pm
+
+To Do [March 17]:
+* Try increasing dropout
+* Let the network finish training... remove patience parameter or set it really high so it ignores the output altogether
 """
 
 # Check detected system hardware resources.
@@ -215,63 +219,66 @@ def build_classifier_model():
     return model
 
 classifier_model = build_classifier_model()
-# bert_raw_result = classifier_model(tf.constant(text_test))
-# print(tf.sigmoid(bert_raw_result))
-
-tf.keras.utils.plot_model(classifier_model)
 
 """Loss Function"""
 
 loss = tf.keras.losses.SparseCategoricalCrossentropy(from_logits=False)
 metrics = tf.metrics.SparseCategoricalAccuracy()
 
-"""Optimizer
+"""Optimizer"""
 
-**Original BERT used AdamW as the optimizer. Please replace ASAP to use the right loss function.**
-"""
+epochs = 10
+batch_size = 100
+steps_per_epoch = len(data_train['sentence_cleaned']) // batch_size
+num_train_steps = steps_per_epoch * epochs
+num_warmup_steps = int(0.1*num_train_steps)
 
-# epochs = 5
-# init_lr = 3e-5
-# num_train_steps = 1
-# optimizer = optimization.create_optimizer(init_lr=init_lr,
-#                                           num_train_steps=1,
-#                                           num_warmup_steps=0,
-#                                           optimizer_type='adamw')
+init_lr = 1e-3
+optimizer = optimization.create_optimizer(init_lr=init_lr,
+                                          num_train_steps=num_train_steps,
+                                          num_warmup_steps=num_warmup_steps,
+                                          optimizer_type='adamw')
 
-"""Record Logs in Tensorboard"""
+"""Record Logs in Tensorboard + Introduce training callback"""
 
 from  IPython import display
 import pathlib
 import shutil
 import tempfile
 
-logdir = pathlib.Path(tempfile.mkdtemp())/"tensorboard_logs"
+# logdir = pathlib.Path(tempfile.mkdtemp())/"tensorboard_logs"
+logdir = pathlib.Path('/content/tensorboard_logs')
 shutil.rmtree(logdir, ignore_errors=True)
 
 def get_callbacks(name):
   return [
     # tfdocs.modeling.EpochDots(),
-    tf.keras.callbacks.EarlyStopping(monitor='val_loss', patience=200),
+    tf.keras.callbacks.EarlyStopping(monitor='val_loss', patience=3),
     tf.keras.callbacks.TensorBoard(logdir/name),
   ]
 
-"""Build Model"""
+"""Compile Model"""
 
-classifier_model.compile(optimizer='adam',
-                         loss=loss,
-                         metrics=['accuracy'])
+# classifier_model.compile(optimizer=optimizer, loss=loss, metrics=['accuracy'])
+classifier_model.compile(optimizer='adam', loss=loss, metrics=['accuracy'])
 
 classifier_model.summary()
+tf.keras.utils.plot_model(classifier_model)
 
 # model.compile(loss='sparse_categorical_crossentropy', 
 #               optimizer='adam',
 #             #   optimizer=tf.keras.optimizers.Adam(learning_rate=3e-5, epsilon=1e-08, clipnorm=1.0), 
 #               metrics=['accuracy'])
 
-# print(f'Training model with {tfhub_handle_encoder}')
 history = classifier_model.fit(x=data_train["sentence_cleaned"], y=data_train['emotion_enc'],
-                               batch_size=100, epochs=4, verbose=1, callbacks=get_callbacks('BERT'),
+                               batch_size=batch_size, epochs=epochs, verbose=1, callbacks=get_callbacks('BERT'),
                                validation_data=[data_val["sentence_cleaned"], data_val['emotion_enc']])
+
+# history = classifier_model.fit(x=data_train["sentence_cleaned"], y=data_train['emotion_enc'],
+#                                epochs=epochs, verbose=1, callbacks=get_callbacks('BERT'),
+#                                validation_data=[data_val["sentence_cleaned"], data_val['emotion_enc']])
+
+"""#### Predict & Get Confusion Matrix"""
 
 y_test_predict = classifier_model.predict(data_test["sentence_cleaned"])
 y_test_predict_encoded = [np.argmax(item) for item in y_test_predict]
@@ -303,6 +310,7 @@ plt.yticks(rotation=0)
 #docs_infra: no_execute
 
 # Load the TensorBoard notebook extension
+# %reload_ext tensorboard
 # %load_ext tensorboard
 
 # Open an embedded TensorBoard viewer
@@ -338,22 +346,22 @@ This is test for the imported BERT model. Just for show. It won't be used for th
 # !pip install transformers
 # import transformers
 
-from transformers import pipeline
+# from transformers import pipeline
 
-# BERT tokenizer
-# tokenizer = transformers.BertTokenizer.from_pretrained('bert-base-uncased', do_lower_case=True)
-tokenizer = transformers.AutoTokenizer.from_pretrained('distilbert-base-uncased', num_labels=6, do_lower_case=True)
-# tokenizer = transformers.AutoTokenizer.from_pretrained("prajjwal1/bert-tiny", num_labels=6, do_lower_case=True)
-# test_nlp_recognizer = pipeline("sentiment-analysis", model="prajjwal1/bert-tiny")
+# # BERT tokenizer
+# # tokenizer = transformers.BertTokenizer.from_pretrained('bert-base-uncased', do_lower_case=True)
+# tokenizer = transformers.AutoTokenizer.from_pretrained('distilbert-base-uncased', num_labels=6, do_lower_case=True)
+# # tokenizer = transformers.AutoTokenizer.from_pretrained("prajjwal1/bert-tiny", num_labels=6, do_lower_case=True)
+# # test_nlp_recognizer = pipeline("sentiment-analysis", model="prajjwal1/bert-tiny")
 
-# BERT Model
-config = transformers.DistilBertConfig(dropout=0.2, attention_dropout=0.2)
-# config = transformers.AutoConfig(dropout=0.2, attention_dropout=0.2)
-# config = transformers.AutoConfig.from_pretrained("prajjwal1/bert-tiny", hidden_dropout_prob=0.2)
-config.output_hidden_states = False
+# # BERT Model
+# config = transformers.DistilBertConfig(dropout=0.2, attention_dropout=0.2)
+# # config = transformers.AutoConfig(dropout=0.2, attention_dropout=0.2)
+# # config = transformers.AutoConfig.from_pretrained("prajjwal1/bert-tiny", hidden_dropout_prob=0.2)
+# config.output_hidden_states = False
 
-nlp = transformers.TFDistilBertModel.from_pretrained('distilbert-base-uncased', config=config)
-# nlp = transformers.AutoModel.from_pretrained("prajjwal1/bert-tiny", config=config)
+# nlp = transformers.TFDistilBertModel.from_pretrained('distilbert-base-uncased', config=config)
+# # nlp = transformers.AutoModel.from_pretrained("prajjwal1/bert-tiny", config=config)
 
 """From the website (https://towardsdatascience.com/text-classification-with-nlp-tf-idf-vs-word2vec-vs-bert-41ff868d1794): <br>
 *First of all, we need to select the sequence max length. This time I’m gonna choose a much larger number (i.e. 50) because BERT splits unknown words into sub-tokens until it finds a known unigrams. For example, if a made-up word like “zzdata” is given, BERT would split it into [“z”, “##z”, “##data”]. Moreover, we have to insert special tokens into the input text, then generate masks and segments. Finally, put all together in a tensor to get the feature matrix that will have the shape of 3 (ids, masks, segments) x Number of documents in the corpus x Sequence length*
@@ -368,141 +376,113 @@ In BERT, we have three things to keep track of
 Now, we are not using code from the link above. I have directly used the tokenizer object itself.
 """
 
-try:
-    del idx, masks, segments
-except:
-    pass
+# try:
+#     del idx, masks, segments
+# except:
+#     pass
 
-histo_plot_data = np.zeros((3,87))
-# Set max length of the sentence
-maxlen=72
+# histo_plot_data = np.zeros((3,87))
+# # Set max length of the sentence
+# maxlen=72
 
-# I really should be using data cleaning that I used for Word Embedding, but let's have something working first.
-def bert_tokenize(corpus, dataset_str):
-    histo_plot_data = np.zeros((87))
-    # corpus = data_train["sentence_cleaned"]
-    idx, masks, segments = [], [], []
-    longest = 0
-    longest_index = 0;
-    feedback_sum = 0
+# # I really should be using data cleaning that I used for Word Embedding, but let's have something working first.
+# def bert_tokenize(corpus, dataset_str):
+#     histo_plot_data = np.zeros((87))
+#     # corpus = data_train["sentence_cleaned"]
+#     idx, masks, segments = [], [], []
+#     longest = 0
+#     longest_index = 0;
+#     feedback_sum = 0
 
-    for i, element in enumerate(corpus):
+#     for i, element in enumerate(corpus):
 
-        tmp = tokenizer(element)
-        idx.append(tmp["input_ids"])
-        masks.append(tmp["attention_mask"])
-        # segments.append(tmp["token_type_ids"])
+#         tmp = tokenizer(element)
+#         idx.append(tmp["input_ids"])
+#         masks.append(tmp["attention_mask"])
+#         # segments.append(tmp["token_type_ids"])
         
-        if len(tmp["input_ids"]) > longest:
-            longest = len(tmp["input_ids"])
-            longest_index = i
+#         if len(tmp["input_ids"]) > longest:
+#             longest = len(tmp["input_ids"])
+#             longest_index = i
 
-        histo_plot_data[len(tmp["input_ids"])-1] += 1
-        feedback_sum += len(tmp["input_ids"])
+#         histo_plot_data[len(tmp["input_ids"])-1] += 1
+#         feedback_sum += len(tmp["input_ids"])
 
-        # corpus_tokenized.append(tmp)
-    print(f"{dataset_str}: Longest sentence using BERT Tokenization is {longest} at index {longest_index}.")
-    print(f"Average ID length: {feedback_sum/len(corpus)}")
+#         # corpus_tokenized.append(tmp)
+#     print(f"{dataset_str}: Longest sentence using BERT Tokenization is {longest} at index {longest_index}.")
+#     print(f"Average ID length: {feedback_sum/len(corpus)}")
 
-    for i, element in enumerate(idx):
-        tmp = maxlen - len(element)
-        if tmp > 0:
-            idx[i] += tmp*[0]
-            masks[i] += tmp*[0]
-            # segments[i] += tmp*[1]
-        else:
-            idx[i] = idx[i][0:maxlen]
-            idx[i][maxlen-1] = 102
-            masks[i] = masks[i][0:maxlen]
-            # segments[i] = segments[i][0:maxlen]
-    return [np.asarray(idx, dtype='int32'), np.asarray(masks, dtype='int32')], histo_plot_data
+#     for i, element in enumerate(idx):
+#         tmp = maxlen - len(element)
+#         if tmp > 0:
+#             idx[i] += tmp*[0]
+#             masks[i] += tmp*[0]
+#             # segments[i] += tmp*[1]
+#         else:
+#             idx[i] = idx[i][0:maxlen]
+#             idx[i][maxlen-1] = 102
+#             masks[i] = masks[i][0:maxlen]
+#             # segments[i] = segments[i][0:maxlen]
+#     return [np.asarray(idx, dtype='int32'), np.asarray(masks, dtype='int32')], histo_plot_data
 
-X_train, histo_plot_data[0,:]  = bert_tokenize(data_train["sentence_cleaned"], 'X_train')
-X_val, histo_plot_data[1,:] = bert_tokenize(data_val["sentence_cleaned"], 'X_val')
-X_test, histo_plot_data[2,:] = bert_tokenize(data_test["sentence_cleaned"], 'X_test')
+# X_train, histo_plot_data[0,:]  = bert_tokenize(data_train["sentence_cleaned"], 'X_train')
+# X_val, histo_plot_data[1,:] = bert_tokenize(data_val["sentence_cleaned"], 'X_val')
+# X_test, histo_plot_data[2,:] = bert_tokenize(data_test["sentence_cleaned"], 'X_test')
 
-# X_train=[np.asarray(idx, dtype='int32'), 
-#          np.asarray(masks, dtype='int32')]
+# # X_train=[np.asarray(idx, dtype='int32'), 
+# #          np.asarray(masks, dtype='int32')]
 
-# Plotting the ID histogram to see the distribution
-import matplotlib.pyplot as plt
-plt.barh(range(1,maxlen+1), histo_plot_data[0,:])
-plt.barh(range(1,maxlen+1), histo_plot_data[1,:])
-plt.barh(range(1,maxlen+1), histo_plot_data[2,:])
-
-# X_train=[np.asarray(idx, dtype='int32'), 
-#          np.asarray(masks, dtype='int32')]#, 
-#         #  np.asarray(segments, dtype='int32')]
+# # Plotting the ID histogram to see the distribution
+# import matplotlib.pyplot as plt
+# plt.barh(range(1,maxlen+1), histo_plot_data[0,:])
+# plt.barh(range(1,maxlen+1), histo_plot_data[1,:])
+# plt.barh(range(1,maxlen+1), histo_plot_data[2,:])
 
 """BERT NN"""
 
-from keras.models import Sequential
-from keras import layers, models, optimizers
-import keras
-import tensorflow as tf
+# from keras.models import Sequential
+# from keras import layers, models, optimizers
+# import keras
+# import tensorflow as tf
 
-# Inputs
-idx = layers.Input((maxlen), dtype='int32',name='input_idx')
-masks = layers.Input((maxlen), dtype='int32',name='input_masks')
-# segments = layers.Input((maxlen), dtype='int32',name='input_segments')
+# # Inputs
+# idx = layers.Input((maxlen), dtype='int32',name='input_idx')
+# masks = layers.Input((maxlen), dtype='int32',name='input_masks')
+# # segments = layers.Input((maxlen), dtype='int32',name='input_segments')
 
-# Pre-trained BERT
-# we already import nlp above, we are using that.
+# # Pre-trained BERT
+# # we already import nlp above, we are using that.
 
-# nlp = transformers.TFBertModel.from_pretrained('bert-base-uncased')
-bert_out = nlp([idx, masks])
+# # nlp = transformers.TFBertModel.from_pretrained('bert-base-uncased')
+# bert_out = nlp([idx, masks])
 
-# fine-tuning
-x = layers.GlobalAveragePooling1D()(bert_out[0])
+# # fine-tuning
+# x = layers.GlobalAveragePooling1D()(bert_out[0])
+# # x = layers.Dense(64, activation='relu')(x)
 # x = layers.Dense(64, activation='relu')(x)
-x = layers.Dense(64, activation='relu')(x)
-# x = layers.Dense(64, activation='sigmoid')(x)
-y_out = layers.Dense(6, activation='softmax')(x)
+# # x = layers.Dense(64, activation='sigmoid')(x)
+# y_out = layers.Dense(6, activation='softmax')(x)
 
-model = models.Model([idx, masks], y_out)
+# model = models.Model([idx, masks], y_out)
 
-# The BERT model is pre-trained; we don't need to train that layer. Only train the last two Dense layers basically
-for layer in model.layers[:4]:
-    layer.trainable=False
+# # The BERT model is pre-trained; we don't need to train that layer. Only train the last two Dense layers basically
+# for layer in model.layers[:4]:
+#     layer.trainable=False
 
-# model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=3e-5, epsilon=1e-08, clipnorm=1.0), 
-            #   loss=tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True), 
-            #   metrics=[tf.keras.metrics.SparseCategoricalAccuracy('accuracy')])
+# # model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=3e-5, epsilon=1e-08, clipnorm=1.0), 
+#             #   loss=tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True), 
+#             #   metrics=[tf.keras.metrics.SparseCategoricalAccuracy('accuracy')])
 
-model.compile(loss='sparse_categorical_crossentropy', 
-              optimizer='adam',
-            #   optimizer=tf.keras.optimizers.Adam(learning_rate=3e-5, epsilon=1e-08, clipnorm=1.0), 
-              metrics=['accuracy'])
-model.summary()
-
-from  IPython import display
-# from matplotlib import pyplot as plt
-
-# import numpy as np
-
-# import pathlib
-# import shutil
-# import tempfile
-
-# logdir = pathlib.Path(tempfile.mkdtemp())/"tensorboard_logs"
-# shutil.rmtree(logdir, ignore_errors=True)
+# model.compile(loss='sparse_categorical_crossentropy', 
+#               optimizer='adam',
+#             #   optimizer=tf.keras.optimizers.Adam(learning_rate=3e-5, epsilon=1e-08, clipnorm=1.0), 
+#               metrics=['accuracy'])
+# model.summary()
 
 # !pip install git+https://github.com/tensorflow/docs
 # import tensorflow_docs as tfdocs
 # import tensorflow_docs.modeling
 # import tensorflow_docs.plots
-
-# def get_callbacks(name):
-def get_callbacks():
-  return [
-    # tfdocs.modeling.EpochDots(),
-    tf.keras.callbacks.EarlyStopping(monitor='loss', patience=4),
-    # tf.keras.callbacks.TensorBoard(logdir/name),
-  ]
-
-history = model.fit(x=X_train, y=data_train['emotion_enc'], batch_size=100, epochs=1,
-                    shuffle=True, verbose=1, callbacks=get_callbacks(),
-                    validation_data=[X_val, data_val['emotion_enc']])
 
 """### Doing some other testing here"""
 
@@ -786,171 +766,3 @@ Let's find out how long the uncleaned sentence is, since the example link does n
 # plt.barh(range(1,66+1), histo_plot_data[0,:])
 # plt.barh(range(1,66+1), histo_plot_data[1,:])
 # plt.barh(range(1,66+1), histo_plot_data[2,:])
-
-"""## METHOD 1: Word Embedding
-
-I did pre-processing, word stemming, and stuff like that in Data Cleaning. The simplest way avoid words not being found in a database is if word stemming is not performed on the dataset (or as I just found out, use lemmization instead. More computationally complex but better for actually working with word embedding techniques (I think)).
-
-Partial reference: Find words in the Word2VecKeyedVector (using 2.3 in source https://github.com/adsieg/Multi_Text_Classification/blob/master/%5BIntroduction%5D%20-%20Big%20tutorial%20-%20Text%20Classification.ipynb) by using `Word2VecKeyedVector.index2word`. This returns a list of the word2vec array.
-
-Instructions used for pre-processing (this part): https://towardsdatascience.com/text-classification-with-nlp-tf-idf-vs-word2vec-vs-bert-41ff868d1794 (as posted on Feb.17)
-
-For CNN (not attempted): https://medium.com/saarthi-ai/sentence-classification-using-convolutional-neural-networks-ddad72c7048c
-"""
-
-# DO NOT RUN THIS BLOCK MORE THAN ONCE IN ONE SESSION
-# Import gensim data
-import gensim.downloader as api
-import gensim
-# Load a pre-trained word embedding model
-# Gensim data obtained from https://github.com/RaRe-Technologies/gensim-data (official source)
-word_embed = api.load('glove-twitter-25')
-# word_embed = api.load('word2vec-google-news-300') # This is 1.6GB... good luck doing this on Google Colab...
-# model = gensim.models.KeyedVectors.load_word2vec_format('GoogleNews-vectors-negative300.bin', binary=True)
-
-print(api.load("glove-twitter-25", return_path=True))
-# print(api.load('word2vec-google-news-300', return_path=True))
-
-# Check dimension of word vectors
-# model.vector_size
-
-"""### Pre-Processing
-Using Keras for Preprocessing. Steps taken:
-1. Called the Tokenizer object
-2. Added Training Set Vocabulary to the Tokenizer object (`fit_on_texts`)
-    * Viewed the added vocabulary using `tokenizer.word_index` command.
-3. Convert all text to numeric values using `text_to_sequences` method function
-4. Padded the length of every sample so that the input matrix would be equal in size
-"""
-
-data_train.head()
-
-from keras.preprocessing.text import Tokenizer
-from keras.preprocessing.sequence import pad_sequences
-import seaborn as sns
-
-tokenizer = Tokenizer()
-tokenizer.fit_on_texts(data_train["sentence_cleaned"])
-dic_vocabulary = tokenizer.word_index
-
-X_train = tokenizer.texts_to_sequences(data_train["sentence_cleaned"])
-X_test = tokenizer.texts_to_sequences(data_test["sentence_cleaned"])
-X_val = tokenizer.texts_to_sequences(data_val["sentence_cleaned"])
-
-vocab_size = len(tokenizer.word_index) + 1
-
-"""Finding out which data set has the longest "sentence" a.k.a. useful words that we did not eliminate via lemmization."""
-
-# string_name = ['X_train', 'X_test', 'X_val']
-dict_data = {'X_train': X_train,
-             'X_test': X_test,
-             'X_val': X_val}
-histo_plot_data = np.zeros((3,35))
-
-tmp_counter = 0;
-for key, value in dict_data.items():
-    feedback = 0;
-    feedback_sum = 0;
-    for i in value:
-        histo_plot_data[tmp_counter, len(i)-1] += 1
-        feedback_sum += len(i)
-        if len(i) > feedback:
-            feedback = len(i)
-    print(f"{key}, Longest ID: {feedback}, Average ID length: {feedback_sum/len(value)}")
-    tmp_counter += 1
-del tmp_counter
-
-# Longest sentence has 35 elements. Average is around 10.
-# TODO: This value, which influences padding, should be adjusted I think...
-maxlen = 20
-
-# Plotting the ID histogram to see the distribution
-import matplotlib.pyplot as plt
-
-plt.barh(range(1,35+1), histo_plot_data[0,:])
-plt.barh(range(1,35+1), histo_plot_data[1,:])
-plt.barh(range(1,35+1), histo_plot_data[2,:])
-
-"""Pad each sample to the same length."""
-
-X_train = pad_sequences(X_train, padding='post', maxlen=maxlen)
-X_test = pad_sequences(X_test, padding='post', maxlen=maxlen)
-X_val = pad_sequences(X_val, padding='post', maxlen=maxlen)
-
-# Honestly don't know what this is doing, I just followed the website's instructions
-# Looks like this shows the padding heat map or something similar to that
-sns.heatmap(X_train==0, vmin=0, vmax=1, cbar=False)
-plt.show()
-
-"""Obtain the Embedding Matrix, which is necessary for the machine learning algorithm."""
-
-embeddings = np.zeros((len(dic_vocabulary)+1, 25))
-counter=0
-for word, idx in dic_vocabulary.items():
-    # embeddings[idx] = word_embed[word]
-    try:
-        # Reminder: word_embed is the pre-trained word embedding model...
-        embeddings[idx] = word_embed[word]
-    except:
-        counter += 1
-        pass
-
-print(f"Number of words in dictionary that have been assigned a matrix of 0's: {counter}")
-
-# word = "data"
-# print("dic[word]:", dic_vocabulary[word], "|idx")
-# print("embeddings[idx]:", embeddings[dic_vocabulary[word]].shape, 
-#       "|vector")
-
-"""### Neural Network
-
-Referencing source: https://towardsdatascience.com/text-classification-with-nlp-tf-idf-vs-word2vec-vs-bert-41ff868d1794
-"""
-
-from keras.models import Sequential
-from keras import layers, models, optimizers
-import keras
-
-def attention_layer(inputs, neurons):
-    x = layers.Permute((2,1))(inputs)
-    x = layers.Dense(neurons, activation="softmax")(x)
-    x = layers.Permute((2,1), name='attention')(x)
-    x = layers.multiply([inputs, x])
-    return x
-
-# input
-x_in = layers.Input(shape=(maxlen,))
-
-# embedding
-# trainable=False means that these embedding weights will not change. What if they did though?
-x = layers.Embedding(input_dim=embeddings.shape[0],
-                     output_dim=embeddings.shape[1],
-                     weights=[embeddings],
-                     input_length=maxlen, trainable=True)(x_in)
-
-# apply attention
-x = attention_layer(x, neurons=maxlen)
-
-# 2 layers of bidirectional lstm
-x = layers.Bidirectional(layers.LSTM(units=maxlen, dropout=0.2, return_sequences=True))(x)
-x = layers.Bidirectional(layers.LSTM(units=maxlen, dropout=0.2))(x)
-
-# final dense layers
-x = layers.Dense(64, activation='relu')(x)
-y_out = layers.Dense(6, activation='softmax')(x)
-
-model = models.Model(x_in, y_out)
-model.compile(loss='sparse_categorical_crossentropy', optimizer='adam', metrics=['accuracy'])
-model.summary()
-
-# The fitting method should be placed in a variable so that results can be easily extracted later...
-# For now, I would like to see training happening in real time, so making it verbose I guess.
-# Still need to adjust hyper-parameters for better results... if I can get better results.
-# batch_size=256 (default given on the website)
-model.fit(x=X_train, y=data_train['emotion_enc'], batch_size=32, epochs=20,
-                     shuffle=True, verbose=1, validation_data=[X_val, data_val['emotion_enc']])
-
-"""Test data on the fitted model using `model.evaluate()`. Also get the probabilities of each sentence via `model.predict()`"""
-
-model.evaluate(X_test, data_test["emotion_enc"], batch_size=1)
-model.predict(X_test)

@@ -13,14 +13,19 @@ Focus: Word Embedding
 Author: Tom Sung
 
 Last updated:
-* Date: March 15, 2022
-* Time: 6:00pm
+* Date: March 17, 2022
+* Time: 6:31pm
+"""
 
-To Do [March 15]:
-* Add Tensorboard
-* Consider not using dropout at all...?
+# Check detected system hardware resources.
+# import os
+# os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
+import tensorflow as tf
+print("TensorFlow version:", tf.__version__)
+print("Num GPUs Available: ", len(tf.config.experimental.list_physical_devices('GPU')))
+print("Num CPUs Available: ", len(tf.config.experimental.list_physical_devices('CPU')))
 
-## References
+"""## References
 (There are more references throughout the document, I just haven't consolidated them all here yet)
 
 * Making our own word2vec model: https://www.geeksforgeeks.org/python-word-embedding-using-word2vec/
@@ -227,7 +232,7 @@ for key, value in dict_data.items():
             feedback = len(i)
     print(f"{key}, Longest ID: {feedback}, Average ID length: {feedback_sum/len(value)}")
     tmp_counter += 1
-del tmp_counter
+del tmp_counter, feedback, feedback_sum
 
 # Longest sentence has 35 elements. Average is around 10.
 # TODO: This value, which influences padding, should be adjusted I think...
@@ -274,50 +279,92 @@ print(f"Number of words in dictionary that have been assigned a matrix of 0's: {
 """### Neural Network
 
 Referencing source: https://towardsdatascience.com/text-classification-with-nlp-tf-idf-vs-word2vec-vs-bert-41ff868d1794
+
+Record Logs in Tensorboard
 """
 
-from keras.models import Sequential
-from keras import layers, models, optimizers
-import keras
+from  IPython import display
+import pathlib
+import shutil
+import tempfile
 
-def attention_layer(inputs, neurons):
-    x = layers.Permute((2,1))(inputs)
-    x = layers.Dense(neurons, activation="softmax")(x)
-    x = layers.Permute((2,1), name='attention')(x)
-    x = layers.multiply([inputs, x])
-    return x
+# logdir = pathlib.Path(tempfile.mkdtemp())/"tensorboard_logs"
+logdir = pathlib.Path('/content/tensorboard_logs')
+shutil.rmtree(logdir, ignore_errors=True)
 
-# input
-x_in = layers.Input(shape=(maxlen,))
+def get_callbacks(name):
+  return [
+    tf.keras.callbacks.EarlyStopping(monitor='val_loss', patience=5),
+    tf.keras.callbacks.TensorBoard(logdir/name),
+  ]
 
-# embedding
-# trainable=False means that these embedding weights will not change. What if they did though?
-x = layers.Embedding(input_dim=embeddings.shape[0],
-                     output_dim=embeddings.shape[1],
-                     weights=[embeddings],
-                     input_length=maxlen, trainable=True)(x_in)
+"""Build Neural Network Model"""
 
-# apply attention
-x = attention_layer(x, neurons=maxlen)
+import tensorflow as tf
+# from keras.models import Sequential
+# from keras import layers, models, optimizers
+# import keras
 
-# 2 layers of bidirectional lstm
-x = layers.Bidirectional(layers.LSTM(units=maxlen, dropout=0.2, return_sequences=True))(x)
-x = layers.Bidirectional(layers.LSTM(units=maxlen, dropout=0.2))(x)
+def build_classifier_model():
+    def attention_layer(inputs, neurons):
+        x = tf.keras.layers.Permute((2,1))(inputs)
+        x = tf.keras.layers.Dense(neurons, activation="softmax")(x)
+        x = tf.keras.layers.Permute((2,1), name='attention')(x)
+        x = tf.keras.layers.multiply([inputs, x])
+        return x
 
-# final dense layers
-x = layers.Dense(64, activation='relu')(x)
-y_out = layers.Dense(6, activation='softmax')(x)
+    # input
+    x_in = tf.keras.layers.Input(shape=(maxlen,))
 
-classifier_model = models.Model(x_in, y_out)
+    # embedding
+    # trainable=False means that these embedding weights will not change. What if they did though?
+    x = tf.keras.layers.Embedding(input_dim=embeddings.shape[0],
+                        output_dim=embeddings.shape[1],
+                        weights=[embeddings],
+                        input_length=maxlen, trainable=True)(x_in)
+
+    # apply attention
+    x = attention_layer(x, neurons=maxlen)
+
+    # 2 layers of bidirectional lstm
+    x = tf.keras.layers.Bidirectional(layers.LSTM(units=maxlen, dropout=0.2, return_sequences=True))(x)
+    x = tf.keras.layers.Bidirectional(layers.LSTM(units=maxlen, dropout=0.2))(x)
+
+    # final dense layers
+    x = tf.keras.layers.Dense(64, activation='relu')(x)
+    y_out = tf.keras.layers.Dense(6, activation='softmax')(x)
+    classifier_model = tf.keras.Model(x_in, y_out)
+
+    return classifier_model
+
+classifier_model = build_classifier_model()
+
+"""Optimizer"""
+
+from official.nlp import optimization  # to create AdamW optimizer
+# epochs = 5
+init_lr = 1e-3
+num_train_steps = 1
+optimizer = optimization.create_optimizer(init_lr=init_lr,
+                                          num_train_steps=1,
+                                          num_warmup_steps=3,
+                                          optimizer_type='adamw')
+
+"""Build model"""
+
 classifier_model.compile(loss='sparse_categorical_crossentropy', optimizer='adam', metrics=['accuracy'])
 classifier_model.summary()
+tf.keras.utils.plot_model(classifier_model)
+
+"""Train model"""
 
 # The fitting method should be placed in a variable so that results can be easily extracted later...
 # For now, I would like to see training happening in real time, so making it verbose I guess.
 # Still need to adjust hyper-parameters for better results... if I can get better results.
 # batch_size=256 (default given on the website)
 history = classifier_model.fit(x=X_train, y=data_train['emotion_enc'], batch_size=32, epochs=20,
-                     shuffle=True, verbose=1, validation_data=[X_val, data_val['emotion_enc']])
+                     shuffle=True, verbose=1, validation_data=[X_val, data_val['emotion_enc']],
+                     callbacks=get_callbacks('WordEmbedding'))
 
 """Test data on the fitted model using `model.evaluate()`. Also get the probabilities of each sentence via `model.predict()`"""
 
@@ -342,47 +389,19 @@ ax.set(xlabel="Pred", ylabel="True", xticklabels=emotion_label_list["emotion"],
        yticklabels=emotion_label_list["emotion"], title="Confusion matrix")
 plt.yticks(rotation=0)
 
-"""### [IGNORE] ~Using GloVe (Pre-trained Word Embeddings)~"""
+# Commented out IPython magic to ensure Python compatibility.
+#docs_infra: no_execute
 
-# IGNORE this code block for now.
-# import numpy as np
+# Load the TensorBoard notebook extension
+# %load_ext tensorboard
 
-# def create_embedding_matrix(model, word_index, embedding_dim):
-#     counter=0
-#     vocab_size = len(word_index) + 1
-#     embedding_matrix = np.zeros((len(word_index)+1, embedding_dim))
-    
-#     for word in word_index:
-#         idx = word_index[word]
-#         try:
-#             tmp_vec = model[word]
-#         except:
-#             tmp_vec = np.zeros(embedding_dim)
-#             counter += 1
+# Open an embedded TensorBoard viewer
+# %tensorboard --logdir {logdir}
 
-#         embedding_matrix[idx] = np.array(tmp_vec, dtype=np.float32)[:embedding_dim]
-    
-#     # with open(filepath) as f:
-#     #     for line in f:
-#     #         word, *vector = line.split()
-#     #         if word in word_index:
-#     #             idx = word_index[word]
-#     #             embedding_matrix[idx] = np.array(vector, dtype=np.float32)[:embedding_dim]
-#     print(f"Word Index length: {len(word_index)}. Total number of 0's: {counter}")
-#     return embedding_matrix
+"""### **[IGNORE]** Training Neural Network
 
-# word_index['test']
-# word_embed['test']
-# t1, *test = model['test']
-# print(t1)
-# print(test)
-# print(*test)
-
-# IGNORE this code block for now.
-# embedding_dim = 25
-# embedding_matrix = create_embedding_matrix(word_embed, tokenizer.word_index, embedding_dim)
-
-"""### **[IGNORE]** Training Neural Network"""
+I think I was trying to use CNN here? Anyways I'm not doing that anymore so ignore this.
+"""
 
 # from sklearn import model_selection, preprocessing, linear_model, naive_bayes, metrics, svm
 # def train_model(classifier, feature_vector_train, label, feature_vector_valid, is_neural_net=False):
@@ -448,7 +467,12 @@ plt.yticks(rotation=0)
 #                     validation_data=(X_test, data_test['label_enc']),
 #                     batch_size=10)
 
-"""### **[IGNORE]** Ignore commented code (below) for the rest of this section."""
+"""### **[IGNORE]** Ignore commented code (below) for the rest of this section.
+
+There was an attempt to build my own Word Embedding matrix, but the code would not run properly...
+<br>
+Maybe I should revisit this now and test my own Word Embedding algorithm.
+"""
 
 # Testing n-grams stuff here.
 # import nltk
