@@ -174,15 +174,14 @@ For CNN (not attempted): https://medium.com/saarthi-ai/sentence-classification-u
 
 # DO NOT RUN THIS BLOCK MORE THAN ONCE IN ONE SESSION
 # Import gensim data
-import gensim.downloader as api
+# import gensim.downloader as api
 import gensim
 # Load a pre-trained word embedding model
 # Gensim data obtained from https://github.com/RaRe-Technologies/gensim-data (official source)
-word_embed = api.load('glove-twitter-25')
+# word_embed = api.load('glove-twitter-25')
 # word_embed = api.load('word2vec-google-news-300') # This is 1.6GB... good luck doing this on Google Colab...
-# model = gensim.models.KeyedVectors.load_word2vec_format('GoogleNews-vectors-negative300.bin', binary=True)
 
-print(api.load("glove-twitter-25", return_path=True))
+# print(api.load("glove-twitter-25", return_path=True))
 # print(api.load('word2vec-google-news-300', return_path=True))
 
 # Check dimension of word vectors
@@ -236,7 +235,7 @@ del tmp_counter, feedback, feedback_sum
 
 # Longest sentence has 35 elements. Average is around 10.
 # TODO: This value, which influences padding, should be adjusted I think...
-maxlen = 20
+maxlen = 35
 
 # Plotting the ID histogram to see the distribution
 import matplotlib.pyplot as plt
@@ -256,21 +255,51 @@ X_val = pad_sequences(X_val, padding='post', maxlen=maxlen)
 sns.heatmap(X_train==0, vmin=0, vmax=1, cbar=False)
 plt.show()
 
-"""Obtain the Embedding Matrix, which is necessary for the machine learning algorithm."""
+"""Get my own embedding matrix from the Gensim library"""
+
+vocab_list = []
+
+for item in data_train["sentence_cleaned"]:
+    lst_words = item.split()
+    lst_grams = [" ".join(lst_words[i:i+1]) for i in range(0, len(lst_words), 1)]
+    vocab_list.append(lst_grams)
+del lst_grams, lst_words
 
 embeddings = np.zeros((len(dic_vocabulary)+1, 25))
 counter=0
+## fit word2vec model
+# nlp = gensim.models.word2vec.Word2Vec(dic_vocabulary.keys(), size=25,   
+#             window=8, min_count=1, sg=1, iter=30)
+nlp = gensim.models.word2vec.Word2Vec(vocab_list, size=25,   
+            window=8, min_count=1, sg=1, iter=30)
+
 for word, idx in dic_vocabulary.items():
-    # embeddings[idx] = word_embed[word]
     try:
-        # Reminder: word_embed is the pre-trained word embedding model...
-        embeddings[idx] = word_embed[word]
+        embeddings[idx] = nlp.wv[word]
     except:
         counter += 1
         pass
 
 print(f"Number of words in dictionary that have been assigned a matrix of 0's: {counter}")
 
+"""Obtain the Embedding Matrix, which is necessary for the machine learning algorithm."""
+
+# embeddings = np.zeros((len(dic_vocabulary)+1, 25))
+# counter=0
+# for word, idx in dic_vocabulary.items():
+#     # embeddings[idx] = word_embed[word]
+#     try:
+#         # Reminder: word_embed is the pre-trained word embedding model...
+#         embeddings[idx] = word_embed[word]
+#         # embeddings[idx] = nlp[word]
+#     except:
+#         counter += 1
+#         pass
+
+# print(f"Number of words in dictionary that have been assigned a matrix of 0's: {counter}")
+# del counter
+
+# IGNORE THESE
 # word = "data"
 # print("dic[word]:", dic_vocabulary[word], "|idx")
 # print("embeddings[idx]:", embeddings[dic_vocabulary[word]].shape, 
@@ -301,9 +330,6 @@ def get_callbacks(name):
 """Build Neural Network Model"""
 
 import tensorflow as tf
-# from keras.models import Sequential
-# from keras import layers, models, optimizers
-# import keras
 
 def build_classifier_model():
     def attention_layer(inputs, neurons):
@@ -327,8 +353,8 @@ def build_classifier_model():
     x = attention_layer(x, neurons=maxlen)
 
     # 2 layers of bidirectional lstm
-    x = tf.keras.layers.Bidirectional(layers.LSTM(units=maxlen, dropout=0.2, return_sequences=True))(x)
-    x = tf.keras.layers.Bidirectional(layers.LSTM(units=maxlen, dropout=0.2))(x)
+    x = tf.keras.layers.Bidirectional(tf.keras.layers.LSTM(units=maxlen, dropout=0.2, return_sequences=True))(x)
+    x = tf.keras.layers.Bidirectional(tf.keras.layers.LSTM(units=maxlen, dropout=0.2))(x)
 
     # final dense layers
     x = tf.keras.layers.Dense(64, activation='relu')(x)
@@ -341,14 +367,29 @@ classifier_model = build_classifier_model()
 
 """Optimizer"""
 
-from official.nlp import optimization  # to create AdamW optimizer
-# epochs = 5
+# !pip install -q tf-models-official==2.7.0
+# from official.nlp import optimization  # to create AdamW optimizer
+
+epochs = 40
+batch_size = 32
+steps_per_epoch = len(data_train['sentence_cleaned']) // batch_size
+num_train_steps = steps_per_epoch * epochs
+num_warmup_steps = int(0.1*num_train_steps)
 init_lr = 1e-3
-num_train_steps = 1
-optimizer = optimization.create_optimizer(init_lr=init_lr,
-                                          num_train_steps=1,
-                                          num_warmup_steps=3,
-                                          optimizer_type='adamw')
+
+# lr_schedule = tf.keras.optimizers.schedules.ExponentialDecay(
+#     initial_learning_rate=0.1,
+#     decay_steps=num_train_steps,
+#     decay_rate=0.98)
+
+# optimizer = tf.keras.optimizers.Adam(learning_rate=lr_schedule, beta_1=0.9, beta_2=0.999,
+#     epsilon=1e-07, amsgrad=False)
+
+
+# optimizer = optimization.create_optimizer(init_lr=init_lr,
+#                                           num_train_steps=num_train_steps,
+#                                           num_warmup_steps=num_warmup_steps,
+#                                           optimizer_type='adamw')
 
 """Build model"""
 
@@ -362,11 +403,11 @@ tf.keras.utils.plot_model(classifier_model)
 # For now, I would like to see training happening in real time, so making it verbose I guess.
 # Still need to adjust hyper-parameters for better results... if I can get better results.
 # batch_size=256 (default given on the website)
-history = classifier_model.fit(x=X_train, y=data_train['emotion_enc'], batch_size=32, epochs=20,
+history = classifier_model.fit(x=X_train, y=data_train['emotion_enc'], batch_size=batch_size, epochs=epochs,
                      shuffle=True, verbose=1, validation_data=[X_val, data_val['emotion_enc']],
                      callbacks=get_callbacks('WordEmbedding'))
 
-"""Test data on the fitted model using `model.evaluate()`. Also get the probabilities of each sentence via `model.predict()`"""
+"""Get the probabilities of each sentence via `model.predict()` using the testing data set"""
 
 # classifier_model.evaluate(X_test, data_test["emotion_enc"], batch_size=1)
 y_test_predict = classifier_model.predict(X_test)
@@ -394,6 +435,7 @@ plt.yticks(rotation=0)
 
 # Load the TensorBoard notebook extension
 # %load_ext tensorboard
+# %reload_ext tensorboard
 
 # Open an embedded TensorBoard viewer
 # %tensorboard --logdir {logdir}
@@ -634,22 +676,3 @@ Sources:
 # data_train.head()
 # max_len = data_train['length'].max()
 # print(max_len)
-
-"""## Word Vectorization
-
-We can use the `gensim` library to train our own word2vec model on a custom corpus either with CBOW or Skip Gram.
-
-word2vec cannot create a vector from a word that is not in its vocabulary. So we need to specify "if word in model.vocab" when creating the full list of word vectors (source: https://towardsdatascience.com/using-word2vec-to-analyze-news-headlines-and-predict-article-success-cdeda5f14751)
-"""
-
-# Relevant Libraries for Word Vectorization
-# from sklearn import model_selection, preprocessing, linear_model, naive_bayes, metrics, svm
-# from sklearn.feature_extraction.text import TfidfVectorizer, CountVectorizer
-# from sklearn import decomposition, ensemble
-# from sklearn.preprocessing import LabelEncoder
-
-# !pip install nltk
-# !pip install gensim
-# import gensim
-# from nltk.tokenize import sent_tokenize, word_tokenize
-# from gensim.models import Word2Vec
