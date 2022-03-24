@@ -13,12 +13,8 @@ Focus: BERT
 Author: Tom Sung
 
 Last updated:
-* Date: March 17, 2022
-* Time: 6:31pm
-
-To Do [March 17]:
-* Try increasing dropout
-* Let the network finish training... remove patience parameter or set it really high so it ignores the output altogether
+* Date: March 23, 2022
+* Time: 9:04pm
 """
 
 # Check detected system hardware resources.
@@ -213,7 +209,7 @@ def build_classifier_model():
 
     # Fine-tuning. First, Average pooling
     net = outputs['pooled_output']
-    net = tf.keras.layers.Dropout(0.1)(net)
+    net = tf.keras.layers.Dropout(0.2)(net)
     net = tf.keras.layers.Dense(6, activation='softmax', name='classifier')(net)
     model = tf.keras.Model(text_input, net)
     return model
@@ -228,7 +224,7 @@ metrics = tf.metrics.SparseCategoricalAccuracy()
 """Optimizer"""
 
 epochs = 10
-batch_size = 100
+batch_size = 160
 steps_per_epoch = len(data_train['sentence_cleaned']) // batch_size
 num_train_steps = steps_per_epoch * epochs
 num_warmup_steps = int(0.1*num_train_steps)
@@ -253,14 +249,15 @@ shutil.rmtree(logdir, ignore_errors=True)
 def get_callbacks(name):
   return [
     # tfdocs.modeling.EpochDots(),
-    tf.keras.callbacks.EarlyStopping(monitor='val_loss', patience=3),
+    tf.keras.callbacks.EarlyStopping(monitor='val_loss', patience=2),
     tf.keras.callbacks.TensorBoard(logdir/name),
   ]
 
 """Compile Model"""
 
-# classifier_model.compile(optimizer=optimizer, loss=loss, metrics=['accuracy'])
-classifier_model.compile(optimizer='adam', loss=loss, metrics=['accuracy'])
+classifier_model.compile(optimizer=optimizer, loss=loss, metrics=['accuracy'])
+# classifier_model.compile(optimizer='adam', loss=loss, metrics=['accuracy'])
+
 
 classifier_model.summary()
 tf.keras.utils.plot_model(classifier_model)
@@ -310,8 +307,8 @@ plt.yticks(rotation=0)
 #docs_infra: no_execute
 
 # Load the TensorBoard notebook extension
-# %reload_ext tensorboard
 # %load_ext tensorboard
+# %reload_ext tensorboard
 
 # Open an embedded TensorBoard viewer
 # %tensorboard --logdir {logdir}
