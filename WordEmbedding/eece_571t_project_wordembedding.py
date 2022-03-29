@@ -13,8 +13,12 @@ Focus: Word Embedding
 Author: Tom Sung
 
 Last updated:
-* Date: March 23, 2022
-* Time: 3:09pm
+* Date: March 24, 2022
+* Time: 2:26pm
+
+TO DO [March 24]:
+* Get histogram (bar graph) of how much each emotion label takes up
+* Remove columns in data frame via this code snippet: `data_val = data_val.drop(data_val[data_val.emotion == 'love'].index)`
 """
 
 # Check detected system hardware resources.
@@ -353,8 +357,12 @@ def build_classifier_model():
     x = attention_layer(x, neurons=maxlen)
 
     # 2 layers of bidirectional lstm
-    x = tf.keras.layers.Bidirectional(tf.keras.layers.LSTM(units=maxlen, dropout=0.2, recurrent_dropout=0.2, return_sequences=True))(x)
-    x = tf.keras.layers.Bidirectional(tf.keras.layers.LSTM(units=maxlen, dropout=0.2, recurrent_dropout=0.2))(x)
+    # x = tf.keras.layers.Bidirectional(tf.keras.layers.LSTM(units=maxlen, dropout=0.2, return_sequences=True))(x)
+    # x = tf.keras.layers.Bidirectional(tf.keras.layers.LSTM(units=maxlen, dropout=0.2))(x)
+
+    # Testing: 2 layers of GRU
+    x = tf.keras.layers.Bidirectional(tf.keras.layers.GRU(units=maxlen, dropout=0.2, return_sequences=True))(x)
+    x = tf.keras.layers.Bidirectional(tf.keras.layers.GRU(units=maxlen, dropout=0.2))(x)
 
     # final dense layers
     x = tf.keras.layers.Dense(64, activation='relu')(x)
