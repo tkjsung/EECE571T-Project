@@ -13,8 +13,8 @@ Focus: BERT
 Author: Tom Sung
 
 Last updated:
-* Date: March 23, 2022
-* Time: 9:04pm
+* Date: April 5, 2022
+* Time: 5:30pm
 """
 
 # Check detected system hardware resources.
@@ -38,10 +38,11 @@ print("Num CPUs Available: ", len(tf.config.experimental.list_physical_devices('
 **Only run this once even after if notebook environment is cleared via** `%reset -f`. The code written here imports the Kaggle data set, which I have placed on my public GitHub repo.
 """
 
-!wget https://github.com/tkjsung/EECE571T_Dataset/archive/refs/heads/master.zip
-!unzip /content/master.zip
-# For local computer use:
-# !unzip master.zip
+# Commented out IPython magic to ensure Python compatibility.
+# %%capture
+# !wget https://raw.githubusercontent.com/tkjsung/EECE571T_Dataset/master/Project/train.txt
+# !wget https://raw.githubusercontent.com/tkjsung/EECE571T_Dataset/master/Project/test.txt
+# !wget https://raw.githubusercontent.com/tkjsung/EECE571T_Dataset/master/Project/val.txt
 
 """# Import Data"""
 
@@ -54,14 +55,9 @@ import numpy as np
 # %matplotlib inline
 
 # Read CSV
-# data_train = pd.read_csv('/content/EECE571T_Dataset-master/Project/train.txt',sep=';', header=None)
-# data_test = pd.read_csv('/content/EECE571T_Dataset-master/Project/test.txt',sep=';', header=None)
-# data_val = pd.read_csv('/content/EECE571T_Dataset-master/Project/val.txt',sep=';', header=None)
-
-# Read CSV on local computer
-data_train = pd.read_csv('EECE571T_Dataset-master/Project/train.txt',sep=';', header=None)
-data_test = pd.read_csv('EECE571T_Dataset-master/Project/test.txt',sep=';', header=None)
-data_val = pd.read_csv('EECE571T_Dataset-master/Project/val.txt',sep=';', header=None)
+data_train = pd.read_csv('train.txt',sep=';', header=None)
+data_test = pd.read_csv('test.txt',sep=';', header=None)
+data_val = pd.read_csv('val.txt',sep=';', header=None)
 
 col_names = ["sentence","emotion"]
 data_train.columns = col_names
@@ -250,7 +246,7 @@ def get_callbacks(name):
   return [
     # tfdocs.modeling.EpochDots(),
     tf.keras.callbacks.EarlyStopping(monitor='val_loss', patience=2),
-    tf.keras.callbacks.TensorBoard(logdir/name),
+    tf.keras.callbacks.TensorBoard(log_dir=logdir/name, update_freq='batch')
   ]
 
 """Compile Model"""
@@ -275,37 +271,48 @@ history = classifier_model.fit(x=data_train["sentence_cleaned"], y=data_train['e
 #                                epochs=epochs, verbose=1, callbacks=get_callbacks('BERT'),
 #                                validation_data=[data_val["sentence_cleaned"], data_val['emotion_enc']])
 
-"""#### Predict & Get Confusion Matrix"""
+"""#### Predict & See Results
+
+First, let's do the prediction using the test dataset.
+"""
 
 y_test_predict = classifier_model.predict(data_test["sentence_cleaned"])
 y_test_predict_encoded = [np.argmax(item) for item in y_test_predict]
 y_test_actual = [item for item in data_test["emotion_enc"]]
 
-# from sklearn.metrics import plot_confusion_matrix
-# from sklearn.metrics import confusion_matrix, classification_report
-import sklearn
+"""Obtain Classification Report and Accuracy Score. Save the data in a CSV file."""
 
+import sklearn
 accuracy = sklearn.metrics.accuracy_score(y_test_actual, y_test_predict_encoded)
-# auc = sklearn.metrics.roc_auc_score(y_test_actual, y_test_prob, 
-#                             multi_class="ovr")
 print("Accuracy:",  round(accuracy,3))
-# print("Auc:", round(auc,2))
 print("Detail:")
-print(sklearn.metrics.classification_report(y_test_actual, y_test_predict_encoded,
-      target_names=emotion_label_list["emotion"]))
+classification_report = sklearn.metrics.classification_report(y_test_actual, y_test_predict_encoded,
+      target_names=emotion_label_list["emotion"])
+print(classification_report)
+
+# Attempting to save this as a pandas dataframe, which is then saved as a CSV
+classification_report = sklearn.metrics.classification_report(y_test_actual, y_test_predict_encoded,
+      target_names=emotion_label_list["emotion"], output_dict=True)
+df = pd.DataFrame(classification_report).transpose()
+df.head()
+df.to_csv('/content/BERT_ClassificationReport.csv')
+
+"""Obtain Confusion Matrix and save the resulting figure."""
 
 import seaborn as sns
 cm = sklearn.metrics.confusion_matrix(y_test_actual, y_test_predict_encoded)
 fig, ax = plt.subplots()
 sns.heatmap(cm, annot=True, fmt='d', ax=ax, cmap=plt.cm.Blues, 
             cbar=False)
-ax.set(xlabel="Pred", ylabel="True", xticklabels=emotion_label_list["emotion"], 
-       yticklabels=emotion_label_list["emotion"], title="Confusion matrix")
+ax.set(xlabel="Prediction", ylabel="True", xticklabels=emotion_label_list["emotion"], 
+       yticklabels=emotion_label_list["emotion"], title="Confusion Matrix")
 plt.yticks(rotation=0)
+# Save Confusion Matrix
+fig.savefig('bert_confusionMatrix.png',format='png',bbox_inches="tight",dpi=400)
+
+"""Visualize the NN Training Performance in Tensorboard."""
 
 # Commented out IPython magic to ensure Python compatibility.
-#docs_infra: no_execute
-
 # Load the TensorBoard notebook extension
 # %load_ext tensorboard
 # %reload_ext tensorboard
