@@ -13,8 +13,8 @@ Focus: BERT
 Author: Tom Sung
 
 Last updated:
-* Date: April 5, 2022
-* Time: 5:30pm
+* Date: April 8, 2022
+* Time: 9:47pm
 """
 
 # Check detected system hardware resources.
@@ -219,7 +219,7 @@ metrics = tf.metrics.SparseCategoricalAccuracy()
 
 """Optimizer"""
 
-epochs = 10
+epochs = 25
 batch_size = 160
 steps_per_epoch = len(data_train['sentence_cleaned']) // batch_size
 num_train_steps = steps_per_epoch * epochs
@@ -251,7 +251,9 @@ def get_callbacks(name):
 
 """Compile Model"""
 
-classifier_model.compile(optimizer=optimizer, loss=loss, metrics=['accuracy'])
+# classifier_model.compile(optimizer=optimizer, loss=loss, metrics=['accuracy'])
+classifier_model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=2e-5),
+                         loss=loss, metrics=['accuracy'])
 # classifier_model.compile(optimizer='adam', loss=loss, metrics=['accuracy'])
 
 
