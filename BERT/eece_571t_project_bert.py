@@ -40,9 +40,9 @@ print("Num CPUs Available: ", len(tf.config.experimental.list_physical_devices('
 
 # Commented out IPython magic to ensure Python compatibility.
 # %%capture
-# !wget https://raw.githubusercontent.com/tkjsung/EECE571T_Dataset/master/Project/train.txt
-# !wget https://raw.githubusercontent.com/tkjsung/EECE571T_Dataset/master/Project/test.txt
-# !wget https://raw.githubusercontent.com/tkjsung/EECE571T_Dataset/master/Project/val.txt
+# !wget https://raw.githubusercontent.com/tkjsung/EECE571T-Dataset/master/Project/train.txt
+# !wget https://raw.githubusercontent.com/tkjsung/EECE571T-Dataset/master/Project/test.txt
+# !wget https://raw.githubusercontent.com/tkjsung/EECE571T-Dataset/master/Project/val.txt
 
 """# Import Data"""
 
